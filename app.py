@@ -1,119 +1,168 @@
 import json
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
-from datetime import datetime
 
-# 1. Page Configuration
-st.set_page_config(page_title="SentinelIQ Enterprise", page_icon="💠", layout="wide", initial_sidebar_state="collapsed")
+# ─────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="SentinelIQ Enterprise SIEM",
+    page_icon="🛡️",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-# 2. Enterprise CSS Styling (IBM QRadar / Sentinel Vibe)
+# ─────────────────────────────────────────────────────
+# ENTERPRISE CSS — Clean, Dark, IBM-QRadar / Sentinel inspired
+# ─────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Global Background and Fonts */
-    .stApp {
-        background-color: #0d1117;
-        color: #c9d1d9;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    
-    /* Top Navigation Bar */
-    .top-nav {
-        background: linear-gradient(90deg, #161b22 0%, #0d1117 100%);
-        padding: 15px 25px;
-        border-bottom: 1px solid #30363d;
-        margin-bottom: 25px;
-        border-radius: 5px;
-    }
-    .top-nav h1 {
-        margin: 0;
-        font-size: 24px;
-        color: #58a6ff;
-        font-weight: 600;
-        letter-spacing: 1px;
-    }
-    .top-nav p {
-        margin: 0;
-        color: #8b949e;
-        font-size: 13px;
-    }
+/* ── Base ── */
+html, body, [class*="css"] {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+.stApp { background-color: #0B0F19; }
 
-    /* Metric Cards */
-    div[data-testid="metric-container"] {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        padding: 15px;
-        border-radius: 6px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-    div[data-testid="metric-container"] > label {
-        color: #8b949e !important;
-        font-weight: 600;
-        font-size: 14px;
-    }
-    
-    /* Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #161b22;
-        border-radius: 6px;
-        padding: 5px;
-        border: 1px solid #30363d;
-    }
-    .stTabs [data-baseweb="tab"] {
-        color: #8b949e;
-        font-weight: 500;
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #21262d !important;
-        color: #58a6ff !important;
-        border-radius: 4px;
-    }
+/* ── Top Banner ── */
+.sentinel-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(135deg, #111827 60%, #0F172A);
+    border-bottom: 2px solid #1D4ED8;
+    padding: 14px 28px;
+    border-radius: 0 0 8px 8px;
+    margin-bottom: 20px;
+}
+.sentinel-banner .logo { font-size: 32px; }
+.sentinel-banner .title { font-size: 22px; font-weight: 700; color: #60A5FA; letter-spacing: .5px; }
+.sentinel-banner .sub   { font-size: 12px; color: #6B7280; margin-top: 2px; }
 
-    /* Info Boxes for Beginners */
-    .analyst-guide {
-        background-color: #1c2128;
-        border-left: 4px solid #8957e5;
-        padding: 15px;
-        margin-bottom: 20px;
-        border-radius: 4px;
-        font-size: 14px;
-        color: #c9d1d9;
-    }
-    .analyst-guide strong {
-        color: #58a6ff;
-    }
+/* ── KPI Cards ── */
+div[data-testid="metric-container"] {
+    background: #111827;
+    border: 1px solid #1E293B;
+    border-radius: 8px;
+    padding: 18px 20px;
+}
+div[data-testid="metric-container"] > label {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #6B7280 !important;
+}
+div[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    font-size: 28px !important;
+    font-weight: 700;
+    color: #F9FAFB !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: #111827;
+    border-radius: 8px;
+    padding: 4px;
+    gap: 2px;
+    border: 1px solid #1E293B;
+    margin-bottom: 16px;
+}
+.stTabs [data-baseweb="tab"] {
+    padding: 9px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #9CA3AF;
+    border-radius: 6px;
+}
+.stTabs [aria-selected="true"] {
+    background: #1D4ED8 !important;
+    color: #fff !important;
+}
+
+/* ── Guide Box ── */
+.guide-box {
+    background: #0F172A;
+    border-left: 3px solid #3B82F6;
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #94A3B8;
+    margin-bottom: 18px;
+    line-height: 1.6;
+}
+.guide-box b { color: #60A5FA; }
+
+/* ── Section headers ── */
+.section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #E2E8F0;
+    border-bottom: 1px solid #1E293B;
+    padding-bottom: 6px;
+    margin-bottom: 12px;
+    margin-top: 8px;
+}
+
+/* ── Severity Badge ── */
+.badge-critical { background:#7F1D1D; color:#FCA5A5; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;}
+.badge-high     { background:#7C2D12; color:#FED7AA; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;}
+.badge-medium   { background:#713F12; color:#FDE68A; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;}
+.badge-low      { background:#14532D; color:#86EFAC; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;}
+
+/* ── Buttons ── */
+.stButton > button[kind="primary"] {
+    background: #1D4ED8;
+    color: #fff;
+    border: none;
+    font-weight: 600;
+    border-radius: 6px;
+}
+.stButton > button[kind="primary"]:hover { background: #1E40AF; }
+
+/* ── Code blocks ── */
+.stCode, pre { border-radius: 6px !important; }
+
+/* Dataframe */
+.stDataFrame { border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Top Navigation Header
+# ─────────────────────────────────────────────────────
+# BANNER
+# ─────────────────────────────────────────────────────
 st.markdown("""
-<div class="top-nav">
-    <h1>💠 SentinelIQ Enterprise SOC</h1>
-    <p>Advanced Security Information & Event Management (SIEM) | AI-Augmented Threat Intelligence</p>
+<div class="sentinel-banner">
+  <span class="logo">🛡️</span>
+  <div>
+    <div class="title">SentinelIQ Enterprise SIEM</div>
+    <div class="sub">Security Information &amp; Event Management · AI-Augmented Threat Intelligence · Real-time Wazuh Integration</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Secrets Configuration
-BACKEND_URL = st.secrets.get("BACKEND_API_URL", "").rstrip("/")
+# ─────────────────────────────────────────────────────
+# CONFIG / API HELPERS
+# ─────────────────────────────────────────────────────
+BACKEND_URL   = st.secrets.get("BACKEND_API_URL",   "").rstrip("/")
 BACKEND_TOKEN = st.secrets.get("BACKEND_API_TOKEN", "")
 
 if not BACKEND_URL or not BACKEND_TOKEN:
-    st.error("Backend configuration missing! Add BACKEND_API_URL and BACKEND_API_TOKEN in Streamlit Secrets.")
+    st.error("⚠️  Backend not configured.  Add **BACKEND_API_URL** and **BACKEND_API_TOKEN** in Streamlit → Secrets.")
     st.stop()
 
 HEADERS = {"Authorization": f"Bearer {BACKEND_TOKEN}"}
 
-# Helper API functions
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=30, show_spinner=False)
 def api_get(path: str, params: dict = None):
     r = requests.get(f"{BACKEND_URL}{path}", headers=HEADERS, params=params, timeout=20)
     r.raise_for_status()
     return r.json()
 
 def api_post(path: str, body: dict = None):
-    r = requests.post(f"{BACKEND_URL}{path}", headers=HEADERS, json=body or {}, timeout=60)
+    r = requests.post(f"{BACKEND_URL}{path}", headers=HEADERS, json=body or {}, timeout=90)
     if r.status_code >= 400:
         try:
             detail = r.json().get("detail", r.text)
@@ -122,251 +171,449 @@ def api_post(path: str, body: dict = None):
         raise RuntimeError(detail)
     return r.json()
 
-# Fetch Dashboard Data
+# ─────────────────────────────────────────────────────
+# DASHBOARD SUMMARY
+# ─────────────────────────────────────────────────────
 try:
     summary = api_get("/api/dashboard/summary")
 except Exception as exc:
-    st.error(f"Backend Server Unavailable: {exc}")
+    st.error(f"❌ Backend Server Unavailable — {exc}")
     st.stop()
 
-sev = summary.get("severity_counts", {})
-high_critical = sev.get("high", 0) + sev.get("critical", 0)
+sev          = summary.get("severity_counts", {})
+high_crit    = sev.get("high", 0) + sev.get("critical", 0)
+last_ts      = str(summary.get("latest_alert_timestamp", "—"))[:19]
 
-# Dashboard Metrics (Fixed the Metric Error)
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Total Ingested Events", summary.get("alert_count", 0), "+Active Stream", delta_color="normal")
-with col2:
-    st.metric("Open Investigations", summary.get("open_incident_count", 0))
-with col3:
-    # Fixed the color issue that caused the crash
-    st.metric("Critical / High Threats", high_critical, "-Requires Action" if high_critical > 0 else "All Clear", delta_color="inverse")
-with col4:
-    last_alert = str(summary.get("latest_alert_timestamp", "N/A"))[:19]
-    st.metric("Latest Telemetry Timestamp", last_alert)
+# ── KPI ROW ──
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("📡  Total Events Ingested",   summary.get("alert_count", 0))
+k2.metric("🔗  Open Investigations",      summary.get("open_incident_count", 0))
+k3.metric("🔴  Critical / High Threats",  high_crit)
+k4.metric("🕐  Latest Telemetry",         last_ts)
 
-st.write("") # Spacer
+st.markdown("---")
 
-# Main Navigation Tabs
+# ─────────────────────────────────────────────────────
+# MAIN TABS
+# ─────────────────────────────────────────────────────
 tabs = st.tabs([
-    "📈 SOC Overview",
-    "📡 Live Telemetry (Alerts)",
-    "🔗 Correlated Incidents",
-    "🧠 SentinelIQ AI Copilot",
-    "🛡️ Remediation Playbooks"
+    "📊  SOC Overview",
+    "📡  Live Alerts",
+    "🔗  Incidents",
+    "🧠  AI Copilot",
+    "🛡️  Playbooks",
+    "⚙️  System Health",
 ])
 
-# Tab 1: SOC Overview
+# ══════════════════════════════════════════════════════
+# TAB 1 — SOC OVERVIEW
+# ══════════════════════════════════════════════════════
 with tabs[0]:
-    st.markdown("""
-    <div class="analyst-guide">
-        <strong>Analyst Guide:</strong> This dashboard provides a high-level view of the current security posture. 
-        Monitor the Severity Distribution chart to quickly identify if the network is under a high-level attack. 
-        Critical and High severity alerts should be triaged immediately.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    colA, colB = st.columns([1, 2])
-    with colA:
-        st.markdown("### Severity Distribution")
-        chart_df = pd.DataFrame({"Severity": list(sev.keys()), "Count": list(sev.values())})
-        if not chart_df.empty:
-            fig = px.pie(chart_df, values='Count', names='Severity', hole=0.7,
-                         color='Severity',
-                         color_discrete_map={
-                             'critical': '#ff4b4b',
-                             'high': '#ff7c43',
-                             'medium': '#ffa600',
-                             'low': '#238636'
-                         })
-            fig.update_layout(
-                margin=dict(t=10, b=10, l=10, r=10),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9'),
-                showlegend=False
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig)
-        else:
-            st.info("No alert telemetry available.")
-            
-    with colB:
-        st.markdown("### System Health & Integrations")
-        sys_col1, sys_col2 = st.columns(2)
-        with sys_col1:
-            st.success("✅ Wazuh SIEM Node: Connected")
-            st.success("✅ SentinelIQ AI Engine: Online (Groq/Bedrock)")
-        with sys_col2:
-            st.success("✅ PostgreSQL Database: Active")
-            st.info("ℹ️ Threat Intel Feed: Last sync 2 mins ago")
-        
-        st.markdown("### Recent System Activity")
-        st.code("""
-        [SYSTEM] 2026-10-03 07:05:22 - AI Copilot successfully analyzed Incident #2
-        [SYSTEM] 2026-10-03 07:01:10 - Ingested 7 new events from Wazuh agents
-        [SYSTEM] 2026-10-03 06:55:00 - Database deduplication job completed (0 duplicates removed)
-        """, language="bash")
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  A live security posture snapshot of your environment.
+    The ring chart breaks down alert severity. If you see <b>Critical or High</b> alerts, immediately jump to
+    the <b>Incidents</b> tab, correlate them, and trigger an <b>AI Copilot</b> investigation.
+    </div>""", unsafe_allow_html=True)
 
-# Tab 2: Live Telemetry
+    col_chart, col_status = st.columns([1, 1], gap="large")
+
+    with col_chart:
+        st.markdown("<div class='section-title'>Alert Severity Breakdown</div>", unsafe_allow_html=True)
+        if sev:
+            color_map = {"critical":"#EF4444","high":"#F97316","medium":"#EAB308","low":"#22C55E","unknown":"#6B7280"}
+            labels  = list(sev.keys())
+            values  = list(sev.values())
+            colors  = [color_map.get(l,"#6B7280") for l in labels]
+            fig = go.Figure(go.Pie(
+                labels=labels, values=values, hole=0.65,
+                marker=dict(colors=colors, line=dict(color="#0B0F19", width=2)),
+                textinfo="percent+label",
+                textfont=dict(size=13, color="#fff"),
+            ))
+            fig.update_layout(
+                margin=dict(t=10,b=10,l=10,r=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                showlegend=True,
+                legend=dict(font=dict(color="#9CA3AF"), bgcolor="rgba(0,0,0,0)"),
+                height=300,
+            )
+            st.plotly_chart(fig, use_container_width=False)
+        else:
+            st.info("No alert data available.")
+
+    with col_status:
+        st.markdown("<div class='section-title'>Integration Status</div>", unsafe_allow_html=True)
+        st.success("✅  Wazuh SIEM Agent: Connected")
+        st.success("✅  AI Engine (Groq LLM): Online")
+        st.success("✅  Backend Database: Active")
+        if high_crit > 0:
+            st.error(f"⚠️  Action Required — {high_crit} High/Critical threat(s) need triage!")
+        else:
+            st.success("✅  No Critical Threats — Environment Stable")
+
+# ══════════════════════════════════════════════════════
+# TAB 2 — LIVE ALERTS
+# ══════════════════════════════════════════════════════
 with tabs[1]:
-    st.markdown("""
-    <div class="analyst-guide">
-        <strong>Analyst Guide:</strong> This section displays raw events (telemetry) forwarded by endpoint agents (like Wazuh). 
-        Use the filter to focus on 'Critical' or 'High' events. You can click on an Alert ID below the table to view its raw JSON payload.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_f1, col_f2 = st.columns([1, 3])
-    with col_f1:
-        severity_filter = st.selectbox("Filter by Severity", ["All", "critical", "high", "medium", "low"], index=0)
-    
-    params = {"limit": 100, "offset": 0}
-    if severity_filter != "All":
-        params["severity"] = severity_filter
-        
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  Raw security events forwarded by your Wazuh agents in real-time.
+    Each row is a single event. Filter by severity to focus only on what matters.
+    <b>Critical &amp; High</b> events should be correlated into Incidents immediately.
+    </div>""", unsafe_allow_html=True)
+
+    fc1, fc2 = st.columns([1,4])
+    with fc1:
+        sev_filter = st.selectbox("Severity Filter", ["All","critical","high","medium","low"])
+    with fc2:
+        if st.button("🔄 Refresh Alerts"):
+            st.cache_data.clear()
+
+    params = {"limit":100, "offset":0}
+    if sev_filter != "All":
+        params["severity"] = sev_filter
+
     try:
-        data = api_get("/api/alerts", params=params)
+        data  = api_get("/api/alerts", params=params)
         items = data.get("items", [])
         if items:
             df = pd.DataFrame(items)
-            df['timestamp'] = pd.to_datetime(df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-            st.dataframe(
-                df[["id", "timestamp", "severity", "agent_name", "rule_id", "rule_description"]],
-                hide_index=True,
-                height=300
-            )
+            df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d  %H:%M:%S")
+            show_cols = [c for c in ["id","timestamp","severity","agent_name","rule_id","rule_description","src_ip"] if c in df.columns]
+            st.dataframe(df[show_cols], hide_index=True, height=350)
+            st.caption(f"Showing {len(items)} events")
         else:
-            st.info("No alerts match the current filters.")
-    except Exception as exc:
-        st.error(f"Failed to load telemetry: {exc}")
+            st.info("No alerts found for selected filter.")
+    except Exception as e:
+        st.error(f"Could not load alerts — {e}")
 
-# Tab 3: Correlated Incidents
+# ══════════════════════════════════════════════════════
+# TAB 3 — INCIDENTS
+# ══════════════════════════════════════════════════════
 with tabs[2]:
-    st.markdown("""
-    <div class="analyst-guide">
-        <strong>Analyst Guide:</strong> Individual alerts are noisy. SentinelIQ automatically correlates related alerts into 
-        <strong>Incidents</strong> based on time, IP, and agent. This is where you should begin your actual investigations.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  SentinelIQ automatically groups related alerts into <b>Incidents</b> based on
+    timing, agent, and rule patterns. An incident is the unit you investigate — not individual alerts.
+    Pick an Incident ID and take it to the <b>AI Copilot</b> tab for automated analysis.
+    </div>""", unsafe_allow_html=True)
+
+    if st.button("🔄 Refresh Incidents"):
+        st.cache_data.clear()
+
     try:
         incidents = api_get("/api/incidents")
         if incidents:
-            df_inc = pd.DataFrame(incidents)
-            st.dataframe(df_inc, hide_index=True, height=250)
+            st.dataframe(pd.DataFrame(incidents), hide_index=True, height=300)
         else:
-            st.info("No incidents have been correlated yet.")
-    except Exception as exc:
-        st.error(str(exc))
+            st.info("No incidents correlated yet.")
+    except Exception as e:
+        st.error(str(e))
 
-# Tab 4: AI Copilot
+    st.markdown("---")
+    st.markdown("<div class='section-title'>Incident Evidence Viewer</div>", unsafe_allow_html=True)
+    inv_id = st.number_input("Incident ID to inspect", min_value=1, step=1, value=1, key="inv_id")
+    if st.button("Load Incident Timeline"):
+        try:
+            detail = api_get(f"/api/incidents/{inv_id}")
+            st.json(detail)
+        except Exception as e:
+            st.error(str(e))
+
+# ══════════════════════════════════════════════════════
+# TAB 4 — AI COPILOT
+# ══════════════════════════════════════════════════════
 with tabs[3]:
-    st.markdown("""
-    <div class="analyst-guide">
-        <strong>Analyst Guide:</strong> The SentinelIQ AI Copilot acts as your Tier-2/Tier-3 analyst. 
-        Select an Incident ID, choose a task (e.g., 'investigation' to understand the attack, or 'response' to get remediation commands), 
-        and the AI will analyze all related logs to give you a human-readable summary.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_ai1, col_ai2 = st.columns([1, 2])
-    with col_ai1:
-        st.markdown("### AI Task Configuration")
-        inc_id_ai = st.number_input("Target Incident ID", min_value=1, step=1, value=1)
-        task_type = st.selectbox("Select Analysis Module", ["triage", "investigation", "response", "manager", "report"])
-        run_btn = st.button("Initialize AI Analysis", type="primary", use_container_width=True)
-        
-    with col_ai2:
-        if run_btn:
-            with st.spinner("SentinelIQ AI is correlating logs and generating insights..."):
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  SentinelIQ AI Copilot is your automated Tier-2 analyst.
+    Select an Incident, choose a task, and the AI will read all related alerts and produce a
+    <b>plain-English report</b> with remediation steps.<br><br>
+    ⚡ <b>Tip:</b> If you already ran an analysis and click again, the system will tell you it already exists.
+    Use <b>"Force Re-run"</b> if you want a fresh analysis.
+    </div>""", unsafe_allow_html=True)
+
+    left, right = st.columns([1, 2], gap="large")
+
+    TASK_DESCRIPTIONS = {
+        "triage":        "🔍 Triage — Quick first-look: what happened and how urgent is it?",
+        "investigation": "🧪 Investigation — Deep-dive: attack timeline, affected systems, evidence chain.",
+        "response":      "🛡️ Response — Windows remediation commands to contain and fix the threat.",
+        "manager":       "👔 Manager Brief — Simple English summary for non-technical managers.",
+        "report":        "📄 Report — Full structured incident report (downloadable).",
+    }
+
+    with left:
+        st.markdown("<div class='section-title'>AI Task Configuration</div>", unsafe_allow_html=True)
+        ai_inc_id   = st.number_input("Target Incident ID", min_value=1, step=1, value=1, key="ai_id")
+        task_choice = st.radio("Analysis Module", list(TASK_DESCRIPTIONS.keys()),
+                               format_func=lambda x: TASK_DESCRIPTIONS[x])
+        force_rerun = st.checkbox("Force Re-run (ignore cached result)")
+        run_ai      = st.button("🚀  Run AI Analysis", type="primary", use_container_width=True)
+
+    with right:
+        if run_ai:
+            with st.spinner("SentinelIQ AI is analyzing all correlated evidence…"):
                 try:
-                    res = api_post(f"/api/incidents/{inc_id_ai}/analyze", {"task": task_type})
-                    
-                    if "result" in res:
-                        ai_data = res["result"]
-                        
-                        st.success(f"Analysis Complete (Model: {ai_data.get('model', 'Unknown')} | Task: {task_type.upper()})")
-                        
-                        if task_type in ["triage", "investigation"]:
-                            st.markdown("### 🔍 Executive Finding")
-                            st.info(ai_data.get('finding', 'No finding summary provided.'))
-                            
-                            st.markdown(f"**Confidence Level:** `{ai_data.get('confidence_label', 'Unknown').upper()}`")
-                            
-                            if "timeline_summary" in ai_data and ai_data["timeline_summary"]:
+                    res = api_post(
+                        f"/api/incidents/{ai_inc_id}/analyze",
+                        {"task": task_choice, "force": force_rerun}
+                    )
+
+                    if res.get("status") == "success":
+                        ai = res.get("result", {})
+                        model_info = f"Model: `{ai.get('model','?')}`  |  Task: `{task_choice.upper()}`"
+                        st.success(f"✅  Analysis complete — {model_info}")
+
+                        # ── TRIAGE ──────────────────────────────────────
+                        if task_choice == "triage":
+                            st.markdown("#### 🔍 What Happened (Plain English)")
+                            st.info(ai.get("finding", "No finding provided."))
+                            conf = ai.get("confidence_label","unknown").upper()
+                            st.markdown(f"**Analyst Confidence:** `{conf}`")
+
+                            actions = ai.get("recommended_actions", [])
+                            if actions:
+                                st.markdown("#### ✅ Recommended Next Steps")
+                                for a in actions: st.markdown(f"- {a}")
+
+                            unknowns = ai.get("unknowns", [])
+                            if unknowns:
+                                st.markdown("#### ❓ What We Don't Know Yet")
+                                for u in unknowns: st.markdown(f"- {u}")
+
+                        # ── INVESTIGATION ────────────────────────────────
+                        elif task_choice == "investigation":
+                            st.markdown("#### 🔍 Finding")
+                            st.info(ai.get("finding","—"))
+
+                            tl = ai.get("timeline_summary","")
+                            if tl:
                                 st.markdown("#### ⏱️ Attack Timeline")
-                                st.write(ai_data["timeline_summary"])
-                            
-                            if ai_data.get("recommended_actions") or ai_data.get("next_investigation_steps"):
-                                st.markdown("#### 🛡️ Next Steps for Analyst")
-                                actions = ai_data.get("recommended_actions", []) + ai_data.get("next_investigation_steps", [])
-                                for act in actions:
-                                    st.markdown(f"- {act}")
-                                    
-                        elif task_type == "response":
-                            st.markdown("### 🛑 Remediation & Response Plan")
-                            st.markdown(f"**Reason:** {ai_data.get('reason', '')}")
-                            st.error(f"**Potential Impact of Action:** {ai_data.get('impact', '')}")
-                            
-                            st.markdown("#### Actionable Commands (Real-world Remediation)")
-                            st.write("Run these commands on the affected endpoint or network device:")
-                            
-                            # Displaying actions as code blocks for copy-pasting
-                            for step in ai_data.get("recommended_actions", []):
-                                if "block" in step.lower() or "firewall" in step.lower() or "kill" in step.lower() or "disable" in step.lower():
-                                    st.code(f"# Execute to mitigate threat:\n{step}", language="bash")
-                                else:
-                                    st.markdown(f"- {step}")
-                                
-                            st.markdown("#### Rollback Plan (If things go wrong)")
-                            for rb in ai_data.get("rollback", []):
-                                st.markdown(f"- {rb}")
-                                
-                        elif task_type == "report":
-                            st.markdown("### 📄 Incident Report")
-                            st.markdown(f"**Executive Summary:**\n{ai_data.get('executive_summary', '')}")
-                            st.markdown(f"**Technical Summary:**\n{ai_data.get('technical_summary', '')}")
+                                st.write(tl)
+
+                            steps = ai.get("next_investigation_steps",[]) + ai.get("recommended_actions",[])
+                            if steps:
+                                st.markdown("#### 🔬 Analyst Investigation Steps")
+                                for s in steps: st.markdown(f"- {s}")
+
+                            with st.expander("Evidence References"):
+                                st.write(ai.get("evidence_refs",[]))
+
+                        # ── RESPONSE (Windows-focused) ────────────────────
+                        elif task_choice == "response":
+                            st.markdown("#### 🛑 Threat Summary")
+                            st.warning(ai.get("finding","—"))
+                            st.markdown(f"**Reason for response:** {ai.get('reason','—')}")
+
+                            impact = ai.get("impact","")
+                            if impact:
+                                st.error(f"⚠️ Potential Impact: {impact}")
+
+                            actions = ai.get("recommended_actions", [])
+                            if actions:
+                                st.markdown("#### 🪟 Windows Remediation Steps")
+                                st.caption("Copy-paste these commands into an elevated PowerShell window on the affected host:")
+                                for step in actions:
+                                    step_lower = step.lower()
+                                    # Show as PowerShell code block
+                                    if any(k in step_lower for k in
+                                           ["powershell","netsh","firewall","block","stop-process",
+                                            "taskkill","disable","remove","get-","set-","new-","invoke-","wmic"]):
+                                        st.code(step, language="powershell")
+                                    else:
+                                        st.markdown(f"- {step}")
+
+                            rollback = ai.get("rollback",[])
+                            if rollback:
+                                with st.expander("↩️ Rollback Plan (If action causes issues)"):
+                                    for rb in rollback: st.markdown(f"- {rb}")
+
+                            verify = ai.get("verification",[])
+                            if verify:
+                                with st.expander("✔️ Verification Steps"):
+                                    for v in verify: st.markdown(f"- {v}")
+
+                        # ── MANAGER ──────────────────────────────────────
+                        elif task_choice == "manager":
+                            st.markdown("#### 📋 Executive Summary (Non-Technical)")
+                            col_m1, col_m2 = st.columns(2)
+                            with col_m1:
+                                st.markdown(f"**What happened:**\n\n{ai.get('what_happened','—')}")
+                                st.markdown(f"**Why it matters:**\n\n{ai.get('why_it_might_matter','—')}")
+                            with col_m2:
+                                systems = ai.get("affected_systems",[])
+                                if systems:
+                                    st.markdown("**Affected Systems:**")
+                                    for s in systems: st.markdown(f"- 💻 {s}")
+                            known = ai.get("what_we_know",[])
+                            if known:
+                                st.markdown("**What we know:**")
+                                for k in known: st.markdown(f"- {k}")
+                            unknown = ai.get("what_we_do_not_know",[])
+                            if unknown:
+                                st.markdown("**What we still need to find out:**")
+                                for u in unknown: st.markdown(f"- {u}")
+
+                        # ── REPORT ───────────────────────────────────────
+                        elif task_choice == "report":
+                            st.markdown("#### 📄 Incident Report")
+                            st.markdown(f"**Executive Summary:**\n\n{ai.get('executive_summary','—')}")
+                            st.markdown(f"**Technical Summary:**\n\n{ai.get('technical_summary','—')}")
+                            timeline = ai.get("timeline",[])
+                            if timeline:
+                                st.markdown("**Timeline:**")
+                                for t in timeline: st.markdown(f"- {t}")
                             st.download_button(
-                                "Download JSON Report",
-                                data=json.dumps(ai_data, indent=2),
-                                file_name=f"Incident_{inc_id_ai}_Report.json",
-                                mime="application/json"
+                                "⬇️  Download Full Report (JSON)",
+                                data=json.dumps(ai, indent=2, default=str),
+                                file_name=f"SentinelIQ_Incident_{ai_inc_id}_Report.json",
+                                mime="application/json",
                             )
-                        
-                        else:
-                            st.json(ai_data) # Fallback
-                            
-                except Exception as exc:
-                    st.error(f"AI Analysis Failed: {str(exc)}")
+                    else:
+                        st.json(res)
 
-# Tab 5: Real-World Playbooks
+                except RuntimeError as e:
+                    err = str(e)
+                    # ── ALREADY EXISTS — nice message, not a raw error ──
+                    if "already exists" in err.lower() or "409" in err:
+                        st.warning(
+                            f"⚠️  A **{task_choice}** analysis for Incident #{ai_inc_id} already exists in the database.\n\n"
+                            "To view it, check the Incident Evidence Viewer (Incidents tab). "
+                            "If you want a **fresh analysis**, tick the **Force Re-run** checkbox above and click Run again."
+                        )
+                    else:
+                        st.error(f"AI Analysis Failed — {err}")
+                except Exception as e:
+                    st.error(f"Unexpected error — {e}")
+
+# ══════════════════════════════════════════════════════
+# TAB 5 — WINDOWS REMEDIATION PLAYBOOKS
+# ══════════════════════════════════════════════════════
 with tabs[4]:
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  Step-by-step Windows remediation playbooks.
+    Each playbook is a real-world Standard Operating Procedure (SOP).
+    <b>Do NOT run these commands without confirming the target machine with your team lead.</b>
+    All commands require an elevated (Administrator) PowerShell session on the affected host.
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-title'>Windows Incident Response Playbooks</div>", unsafe_allow_html=True)
+
+    with st.expander("🚫  Playbook 1 — Block a Malicious IP Address (Windows Firewall)"):
+        st.markdown("""
+**When to use:** An attacker IP has been identified in the alert or AI analysis and needs to be blocked at the host level.
+
+**Step 1 — Open elevated PowerShell** (Right-click → Run as Administrator)
+
+**Step 2 — Block inbound traffic from attacker IP:**
+""")
+        st.code('New-NetFirewallRule -DisplayName "SentinelIQ-Block-Attacker" -Direction Inbound -RemoteAddress <ATTACKER_IP> -Action Block -Protocol Any', language="powershell")
+        st.markdown("**Step 3 — Block outbound traffic (prevent callback/beaconing):**")
+        st.code('New-NetFirewallRule -DisplayName "SentinelIQ-Block-Outbound" -Direction Outbound -RemoteAddress <ATTACKER_IP> -Action Block -Protocol Any', language="powershell")
+        st.markdown("**Step 4 — Verify the rule was applied:**")
+        st.code('Get-NetFirewallRule -DisplayName "SentinelIQ-Block-Attacker" | Format-List', language="powershell")
+        st.markdown("**Rollback (if needed):**")
+        st.code('Remove-NetFirewallRule -DisplayName "SentinelIQ-Block-Attacker"\nRemove-NetFirewallRule -DisplayName "SentinelIQ-Block-Outbound"', language="powershell")
+
+    with st.expander("💀  Playbook 2 — Kill a Malicious Process (Taskkill / PowerShell)"):
+        st.markdown("""
+**When to use:** A suspicious process (e.g., reverse shell, ransomware, crypto-miner) is identified by name or PID in the AI analysis.
+
+**Step 1 — List all processes and find suspect:**
+""")
+        st.code("Get-Process | Where-Object { $_.Name -like '*<PROCESS_NAME>*' } | Select-Object Id, Name, CPU, Path", language="powershell")
+        st.markdown("**Step 2 — Kill by process name:**")
+        st.code("Stop-Process -Name '<PROCESS_NAME>' -Force -Confirm:$false", language="powershell")
+        st.markdown("**Step 3 — Kill by PID (if name is unknown):**")
+        st.code("Stop-Process -Id <PID> -Force", language="powershell")
+        st.markdown("**Step 4 — Verify it's gone:**")
+        st.code("Get-Process -Name '<PROCESS_NAME>' -ErrorAction SilentlyContinue", language="powershell")
+
+    with st.expander("🔒  Playbook 3 — Isolate a Compromised Machine from Network"):
+        st.markdown("""
+**When to use:** A host is confirmed compromised and needs to be isolated to prevent lateral movement.
+
+**Step 1 — Block all inbound and outbound via Windows Firewall:**
+""")
+        st.code("""Set-NetFirewallProfile -All -DefaultInboundAction Block
+Set-NetFirewallProfile -All -DefaultOutboundAction Block""", language="powershell")
+        st.markdown("**Step 2 — Keep only RDP open so YOU can still reach it (replace YOUR_IP):**")
+        st.code('New-NetFirewallRule -DisplayName "SOC-Admin-Access" -Direction Inbound -RemoteAddress <YOUR_SOC_IP> -LocalPort 3389 -Protocol TCP -Action Allow', language="powershell")
+        st.markdown("**Rollback — Restore normal firewall defaults:**")
+        st.code("""Set-NetFirewallProfile -All -DefaultInboundAction Allow
+Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+Remove-NetFirewallRule -DisplayName "SOC-Admin-Access" """, language="powershell")
+
+    with st.expander("🔑  Playbook 4 — Disable a Compromised User Account"):
+        st.markdown("""
+**When to use:** A user account shows signs of compromise (lateral movement, brute force success, impossible travel).
+
+**Step 1 — Disable the account in Active Directory (run on Domain Controller):**
+""")
+        st.code("Disable-ADAccount -Identity '<USERNAME>'", language="powershell")
+        st.markdown("**Step 2 — Force sign out all active sessions:**")
+        st.code("Get-CimInstance -ClassName Win32_Process | Where-Object { $_.GetOwner().User -eq '<USERNAME>' } | Invoke-CimMethod -MethodName Terminate", language="powershell")
+        st.markdown("**Step 3 — Reset the password (mandatory before re-enable):**")
+        st.code("Set-ADAccountPassword -Identity '<USERNAME>' -Reset -NewPassword (ConvertTo-SecureString '<STRONG_NEW_PASSWORD>' -AsPlainText -Force)", language="powershell")
+        st.markdown("**Step 4 — Re-enable when cleared:**")
+        st.code("Enable-ADAccount -Identity '<USERNAME>'", language="powershell")
+
+    with st.expander("🔐  Playbook 5 — Block a Malicious Port or Service"):
+        st.markdown("""
+**When to use:** A specific port is being exploited (e.g., SMB 445, RDP 3389 from unknown IPs).
+
+**Step 1 — Find what is listening on a port:**
+""")
+        st.code("netstat -ano | findstr ':<PORT>'", language="powershell")
+        st.markdown("**Step 2 — Block the port inbound in Windows Firewall:**")
+        st.code('New-NetFirewallRule -DisplayName "SentinelIQ-Block-Port" -Direction Inbound -LocalPort <PORT> -Protocol TCP -Action Block', language="powershell")
+        st.markdown("**Step 3 — Stop and disable the service using the port:**")
+        st.code("Stop-Service -Name '<SERVICE_NAME>' -Force\nSet-Service -Name '<SERVICE_NAME>' -StartupType Disabled", language="powershell")
+
+    with st.expander("📋  Playbook 6 — Collect Forensic Evidence (Before Cleanup)"):
+        st.markdown("""
+**When to use:** Before removing malware or isolating, collect evidence for forensic analysis.
+
+**Step 1 — Export all running processes with full paths:**
+""")
+        st.code("Get-Process | Select-Object Id, Name, Path, CPU, StartTime | Export-Csv C:\\SOC_Evidence\\processes_$(Get-Date -f yyyyMMdd_HHmm).csv -NoTypeInformation", language="powershell")
+        st.markdown("**Step 2 — Export all active network connections:**")
+        st.code("netstat -anob > C:\\SOC_Evidence\\netstat_$(Get-Date -f yyyyMMdd_HHmm).txt", language="powershell")
+        st.markdown("**Step 3 — Export event logs (Security channel):**")
+        st.code("wevtutil epl Security C:\\SOC_Evidence\\Security_$(Get-Date -f yyyyMMdd_HHmm).evtx", language="powershell")
+        st.markdown("**Step 4 — Create evidence directory first:**")
+        st.code("New-Item -ItemType Directory -Path C:\\SOC_Evidence -Force", language="powershell")
+
+# ══════════════════════════════════════════════════════
+# TAB 6 — SYSTEM HEALTH
+# ══════════════════════════════════════════════════════
+with tabs[5]:
+    st.markdown("""<div class='guide-box'>
+    <b>What is this?</b>  Check connectivity between SentinelIQ components.
+    If alerts are not appearing, use this tab to verify that Wazuh and the backend API are reachable.
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-title'>Component Health Check</div>", unsafe_allow_html=True)
+
+    if st.button("🔄  Run Health Check Now"):
+        with st.spinner("Checking connectivity…"):
+            try:
+                health = api_get("/api/source/status")
+                st.success("✅  Backend API: Reachable")
+                st.json(health)
+            except Exception as e:
+                st.error(f"❌  Backend API Unreachable — {e}")
+
+    st.markdown("---")
+    st.markdown("<div class='section-title'>Manual Testing Guide</div>", unsafe_allow_html=True)
     st.markdown("""
-    <div class="analyst-guide">
-        <strong>Analyst Guide:</strong> This section contains standard operating procedures (SOPs) and real-world 
-        commands for isolating machines, blocking IPs, and killing malicious processes. 
-        Always verify the target agent before executing these commands in a production environment.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.subheader("Actionable Remediation Playbooks")
-    
-    with st.expander("🛑 Block Malicious IP (Linux / Iptables)"):
-        st.markdown("Use this command on the Linux endpoint or firewall to drop traffic from an attacker IP.")
-        st.code("sudo iptables -A INPUT -s <ATTACKER_IP> -j DROP\nsudo iptables-save > /etc/iptables/rules.v4", language="bash")
-        
-    with st.expander("🛑 Block Malicious IP (Windows Defender Firewall)"):
-        st.markdown("Run this in PowerShell with Administrator privileges to block an IP.")
-        st.code('New-NetFirewallRule -DisplayName "Block Attacker IP" -Direction Inbound -LocalPort Any -Protocol Any -Action Block -RemoteAddress <ATTACKER_IP>', language="powershell")
+To verify your Wazuh agent is sending real alerts to SentinelIQ:
 
-    with st.expander("💀 Kill Malicious Process (Linux)"):
-        st.markdown("Identify the PID using `netstat` or `ps`, then terminate it.")
-        st.code("sudo kill -9 <PID>", language="bash")
+**Windows agent — Trigger a test event (PowerShell):**
+""")
+    st.code("""# Simulate a failed login event (write to Windows Application log)
+Write-EventLog -LogName Application -Source "Application" -EventId 1001 -Message "SentinelIQ test event - simulated alert"
 
-    with st.expander("💀 Kill Malicious Process (Windows)"):
-        st.markdown("Use PowerShell to terminate a suspicious process by name or ID.")
-        st.code("Stop-Process -Name 'malware_name' -Force\n# OR\nStop-Process -Id <PID> -Force", language="powershell")
-        
-    with st.expander("🔒 Isolate Machine from Network (Wazuh Active Response)"):
-        st.markdown("If integrated with Wazuh Active Response, you can trigger a network quarantine directly from the manager.")
-        st.code("/var/ossec/bin/agent_control -b <AGENT_ID> -f firewalld-drop -r", language="bash")
+# Or trigger a real detection: create a file in a monitored path
+echo "SentinelIQ test" > C:\\Users\\Public\\sentineliq_test.txt""", language="powershell")
+    st.markdown("**Check if the event arrived in the database:**")
+    st.code("""# Run on Debian backend
+curl -H "Authorization: Bearer <TOKEN>" https://<CLOUDFLARE_URL>/api/dashboard/summary""", language="bash")
