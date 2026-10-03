@@ -1,0 +1,16 @@
+streamlit
+fastapi
+uvicorn[standard]
+requests
+httpx
+pydantic
+pydantic-settings
+SQLAlchemy
+groq
+python-dotenv
+pandas
+plotly
+pytest
+pytest-mock
+tenacity
+boto3
