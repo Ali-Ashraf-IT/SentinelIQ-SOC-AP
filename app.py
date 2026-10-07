@@ -258,7 +258,7 @@ def render_sidebar():
         return selected_page
 
 def render_header(title):
-    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     st.markdown(f"""
     <div class="command-bar">
         <div class="cmd-left">{title}</div>
@@ -324,7 +324,7 @@ def page_overview():
         if items:
             df = pd.DataFrame(items)
             df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df['time_bin'] = df['timestamp'].dt.floor('1H')
+            df['time_bin'] = df['timestamp'].dt.floor('h')
             timeline = df.groupby(['time_bin', 'severity']).size().reset_index(name='count')
             
             fig = px.bar(timeline, x="time_bin", y="count", color="severity",
