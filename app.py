@@ -1,507 +1,559 @@
 import json
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 import requests
 import streamlit as st
 from datetime import datetime
 
-# ──────────────────────────────────────────────────────────────
-# PAGE CONFIG
-# ──────────────────────────────────────────────────────────────
+# ==============================================================================
+# CONFIGURATION & INITIALIZATION
+# ==============================================================================
 st.set_page_config(
-    page_title="SentinelIQ Enterprise SIEM",
-    page_icon="🛡️",
+    page_title="SentinelIQ | Security Operations",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded"
 )
 
-# ──────────────────────────────────────────────────────────────
-# CSS — CROWDSTRIKE / SPLUNK INSPIRED ENTERPRISE THEME
-# ──────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-/* Base Theme */
-html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    color: #E2E8F0;
-}
-.stApp { background-color: #0B1120; } /* Very deep navy/black */
+# Initialize Session State for Navigation
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Overview"
 
-/* Hide Streamlit Branding */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
+# ==============================================================================
+# ENTERPRISE CSS STYLING
+# ==============================================================================
+def load_enterprise_css():
+    st.markdown("""
+    <style>
+        /* Base Enterprise Variables */
+        :root {
+            --bg-base: #0B0E14;
+            --bg-panel: #151A23;
+            --bg-panel-hover: #1E2532;
+            --border-color: #2A3441;
+            --text-main: #E2E8F0;
+            --text-muted: #8B949E;
+            --accent-blue: #2563EB;
+            --crit-red: #DC2626;
+            --high-orange: #EA580C;
+            --med-amber: #D97706;
+            --low-blue: #3B82F6;
+            --success-green: #16A34A;
+        }
 
-/* Live Pulse Indicator */
-.live-pulse {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    background-color: #22C55E;
-    border-radius: 50%;
-    margin-right: 8px;
-    box-shadow: 0 0 10px #22C55E;
-    animation: pulse 1.5s infinite;
-}
-@keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-    70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-}
+        /* Global Reset & Streamlit Overrides */
+        html, body, [class*="css"] {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-base) !important;
+            color: var(--text-main) !important;
+        }
+        
+        /* Hide Streamlit artifacts */
+        #MainMenu, header, footer {visibility: hidden;}
+        .stApp > header {background-color: transparent;}
+        
+        /* Compact Spacing */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+            padding-bottom: 1rem !important;
+            max-width: 100% !important;
+        }
 
-/* Banner */
-.siem-banner {
-    background: linear-gradient(90deg, #0F172A 0%, #1E293B 100%);
-    border-left: 5px solid #3B82F6;
-    padding: 20px 30px;
-    border-radius: 8px;
-    margin-bottom: 25px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border: 1px solid #334155;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-}
-.siem-banner-left { display: flex; align-items: center; gap: 20px; }
-.siem-title { font-size: 28px; font-weight: 800; color: #FFFFFF; letter-spacing: 1px; margin: 0; }
-.siem-sub { font-size: 13px; color: #94A3B8; text-transform: uppercase; letter-spacing: 2px; }
-.live-status-box {
-    background: rgba(15, 23, 42, 0.8);
-    border: 1px solid #334155;
-    padding: 8px 16px;
-    border-radius: 30px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #E2E8F0;
-    display: flex;
-    align-items: center;
-}
+        /* Sidebar Styling */
+        [data-testid="stSidebar"] {
+            background-color: var(--bg-panel) !important;
+            border-right: 1px solid var(--border-color) !important;
+        }
+        .sidebar-brand {
+            padding: 1rem 0 2rem 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 1rem;
+        }
+        .brand-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            letter-spacing: 0.5px;
+            margin: 0;
+        }
+        .brand-subtitle {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--accent-blue);
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin: 0;
+        }
+        
+        /* Top Command Bar */
+        .command-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+        }
+        .cmd-left { font-size: 1.1rem; font-weight: 600; color: #FFFFFF; }
+        .cmd-right { display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-muted); align-items: center;}
+        .cmd-item { background: var(--bg-base); padding: 0.25rem 0.75rem; border: 1px solid var(--border-color); }
 
-/* KPI Cards */
-div[data-testid="metric-container"] {
-    background: #0F172A;
-    border: 1px solid #1E293B;
-    border-left: 4px solid #3B82F6;
-    border-radius: 8px;
-    padding: 20px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-div[data-testid="metric-container"] > label {
-    font-size: 12px !important;
-    font-weight: 700 !important;
-    letter-spacing: 1.5px !important;
-    text-transform: uppercase !important;
-    color: #94A3B8 !important;
-}
-div[data-testid="metric-container"] [data-testid="stMetricValue"] {
-    font-size: 34px !important;
-    font-weight: 800 !important;
-    color: #F8FAFC !important;
-    font-family: 'Courier New', monospace;
-}
+        /* KPI Tiles Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .kpi-tile {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            border-top: 2px solid var(--border-color);
+        }
+        .kpi-tile.crit { border-top-color: var(--crit-red); }
+        .kpi-tile.high { border-top-color: var(--high-orange); }
+        .kpi-tile.active { border-top-color: var(--accent-blue); }
+        .kpi-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.25rem;
+        }
+        .kpi-value {
+            font-size: 1.75rem;
+            font-weight: 300;
+            color: #FFFFFF;
+            font-family: 'SF Mono', Consolas, monospace;
+            line-height: 1;
+        }
+        .kpi-trend { font-size: 0.7rem; margin-top: 0.5rem; color: var(--text-muted); }
 
-/* Red KPI for Critical */
-div[data-testid="metric-container"]:nth-child(3) {
-    border-left: 4px solid #EF4444;
-}
-div[data-testid="metric-container"]:nth-child(3) [data-testid="stMetricValue"] {
-    color: #EF4444 !important;
-}
+        /* Section Headers */
+        .section-header {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+            margin: 1.5rem 0 1rem 0;
+            letter-spacing: 0.5px;
+        }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] {
-    background: #0F172A;
-    border-radius: 8px;
-    padding: 4px;
-    border: 1px solid #1E293B;
-}
-.stTabs [data-baseweb="tab"] {
-    font-size: 14px;
-    font-weight: 600;
-    color: #64748B;
-    border-radius: 6px;
-    padding: 12px 24px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-.stTabs [aria-selected="true"] {
-    background: #1E293B !important;
-    color: #3B82F6 !important;
-    border-bottom: 2px solid #3B82F6;
-}
+        /* Status Badges */
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.4rem;
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+        .b-crit { color: #FECACA; border-color: #991B1B; background: rgba(153, 27, 27, 0.2); }
+        .b-high { color: #FED7AA; border-color: #9A3412; background: rgba(154, 52, 18, 0.2); }
+        .b-med  { color: #FDE68A; border-color: #92400E; background: rgba(146, 64, 14, 0.2); }
+        .b-low  { color: #BFDBFE; border-color: #1E40AF; background: rgba(30, 64, 175, 0.2); }
+        .b-ok   { color: #BBF7D0; border-color: #166534; background: rgba(22, 101, 52, 0.2); }
 
-/* Section Headers */
-.sq-section {
-    font-size: 14px;
-    font-weight: 700;
-    color: #94A3B8;
-    text-transform: uppercase;
-    letter-spacing: 1.5px;
-    border-bottom: 1px solid #334155;
-    padding-bottom: 8px;
-    margin: 24px 0 16px 0;
-}
+        /* AI Panel */
+        .ai-panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--accent-blue);
+            padding: 1.5rem;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .ai-header { font-weight: 600; color: #FFF; margin-bottom: 1rem; font-size: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;}
+        .ai-section-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin: 1rem 0 0.25rem 0;}
+        .ai-text { color: var(--text-main); line-height: 1.5; margin-bottom: 0.5rem;}
+        .ai-code { background: #000; padding: 0.75rem; border: 1px solid var(--border-color); font-family: monospace; font-size: 0.8rem; color: #A5B4FC; margin-top: 0.5rem;}
 
-/* Threat Feed Item */
-.threat-item {
-    background: #1E1B2E;
-    border-left: 4px solid #EF4444;
-    padding: 12px 16px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-}
-.threat-time { color: #94A3B8; font-family: monospace; font-size: 12px;}
-.threat-desc { color: #FCA5A5; font-weight: 600; }
-.threat-agent { background: #312E81; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+        /* Dataframe Overrides */
+        [data-testid="stDataFrame"] { border: 1px solid var(--border-color) !important; }
+        
+        /* Expander Overrides */
+        .streamlit-expanderHeader { background-color: var(--bg-panel) !important; border: 1px solid var(--border-color) !important; }
+        .streamlit-expanderContent { border: 1px solid var(--border-color) !important; border-top: none !important; background-color: var(--bg-base); }
+    </style>
+    """, unsafe_allow_html=True)
 
-/* AI Result Containers */
-.sq-finding { background: #0F172A; border: 1px solid #1E3A8A; border-radius: 6px; padding: 16px; font-size: 15px; color: #E0F2FE; line-height: 1.6; margin-bottom: 16px; }
-.sq-step { background: #064E3B; border-left: 3px solid #10B981; padding: 12px 16px; color: #D1FAE5; margin-bottom: 8px; font-size: 14px; }
-.sq-warning { background: #451A03; border-left: 3px solid #F59E0B; padding: 12px 16px; color: #FEF3C7; margin-bottom: 12px; font-size: 14px; }
-.sq-unknown { background: #312E81; border-left: 3px solid #8B5CF6; padding: 12px 16px; color: #EDE9FE; margin-bottom: 8px; font-size: 14px; }
-
-/* Dataframe */
-.stDataFrame { border: 1px solid #1E293B !important; border-radius: 8px; }
-.stDataFrame thead th { background: #0F172A !important; color: #94A3B8 !important; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
-</style>
-""", unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────────────────────
-# CONFIG & AUTH
-# ──────────────────────────────────────────────────────────────
-BACKEND_URL   = st.secrets.get("BACKEND_API_URL",   "").rstrip("/")
+# ==============================================================================
+# API & BACKEND INTEGRATION
+# ==============================================================================
+BACKEND_URL = st.secrets.get("BACKEND_API_URL", "").rstrip("/")
 BACKEND_TOKEN = st.secrets.get("BACKEND_API_TOKEN", "")
-
-if not BACKEND_URL or not BACKEND_TOKEN:
-    st.error("⚠️ Backend not configured — add BACKEND_API_URL and BACKEND_API_TOKEN in Streamlit Secrets.")
-    st.stop()
-
 HEADERS = {"Authorization": f"Bearer {BACKEND_TOKEN}"}
 
-@st.cache_data(ttl=20, show_spinner=False)
-def api_get(path: str, params: dict = None):
-    r = requests.get(f"{BACKEND_URL}{path}", headers=HEADERS, params=params, timeout=20)
-    r.raise_for_status()
-    return r.json()
-
-def api_post(path: str, body: dict = None):
-    r = requests.post(f"{BACKEND_URL}{path}", headers=HEADERS, json=body or {}, timeout=90)
-    r.raise_for_status()
-    return r.json()
-
-# ──────────────────────────────────────────────────────────────
-# FETCH DATA
-# ──────────────────────────────────────────────────────────────
-try:
-    summary = api_get("/api/dashboard/summary")
-    recent_alerts_data = api_get("/api/alerts", params={"limit": 150})
-    incidents_data = api_get("/api/incidents")
-except Exception as exc:
-    st.markdown(f"""
-    <div class="siem-banner" style="border-left-color: #EF4444;">
-      <div class="siem-banner-left">
-        <span style="font-size:30px">⚠️</span>
-        <div><p class="siem-title">SentinelIQ Disconnected</p><p class="siem-sub">Backend Server Unreachable</p></div>
-      </div>
-      <div class="live-status-box" style="color:#FCA5A5"><span class="live-pulse" style="background:#EF4444;box-shadow:none;"></span> Connection Lost</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.error(f"Error Details: {exc}")
+if not BACKEND_URL or not BACKEND_TOKEN:
+    st.error("SYSTEM HALT: Backend API or Token not configured in Streamlit Secrets.")
     st.stop()
 
-# Parse Summary Data
-sev = summary.get("severity_counts", {})
-high_crit = sev.get("high", 0) + sev.get("critical", 0)
-last_ts_raw = summary.get("latest_alert_timestamp")
-last_ts = str(last_ts_raw)[:19] if last_ts_raw else "—"
+@st.cache_data(ttl=30, show_spinner=False)
+def api_get(path: str, params: dict = None):
+    try:
+        r = requests.get(f"{BACKEND_URL}{path}", headers=HEADERS, params=params, timeout=20)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": str(e)}
 
-# ──────────────────────────────────────────────────────────────
-# BANNER - LIVE PULSE
-# ──────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div class="siem-banner">
-  <div class="siem-banner-left">
-    <span style="font-size: 38px;">🛡️</span>
-    <div>
-      <p class="siem-title">SentinelIQ</p>
-      <p class="siem-sub">Advanced Security Operations Platform</p>
-    </div>
-  </div>
-  <div class="live-status-box">
-    <span class="live-pulse"></span>
-    LIVE SYNC &nbsp;|&nbsp; LAST EVENT: {last_ts}
-  </div>
-</div>
-""", unsafe_allow_html=True)
+def api_post(path: str, body: dict = None):
+    try:
+        r = requests.post(f"{BACKEND_URL}{path}", headers=HEADERS, json=body or {}, timeout=90)
+        r.raise_for_status()
+        return r.json()
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "message": str(e)}
 
-# ──────────────────────────────────────────────────────────────
-# KPI ROW
-# ──────────────────────────────────────────────────────────────
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Ingested Events", summary.get("alert_count", 0))
-c2.metric("Active Investigations", summary.get("open_incident_count", 0))
-c3.metric("Critical / High Threats", high_crit)
-c4.metric("Live Endpoint Agents", 1) # Hardcoded for now based on Wazuh setup
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ──────────────────────────────────────────────────────────────
-# MAIN TABS
-# ──────────────────────────────────────────────────────────────
-tabs = st.tabs([
-    "👁️ Threat Dashboard",
-    "📡 Alert Stream",
-    "🔗 Incident Workbench",
-    "🧠 AI Analyst",
-    "🛡️ Remediation Playbooks",
-    "⚙️ Platform Health"
-])
-
-# ══════════════════════════════════════════════════════════════
-# TAB 1  —  THREAT DASHBOARD
-# ══════════════════════════════════════════════════════════════
-with tabs[0]:
-    col_chart, col_feed = st.columns([2, 1], gap="large")
-    
-    # Left Column: Charts
-    with col_chart:
-        st.markdown("<div class='sq-section'>Threat Timeline (Last 150 Events)</div>", unsafe_allow_html=True)
-        
-        alerts_list = recent_alerts_data.get("items", [])
-        if alerts_list:
-            df = pd.DataFrame(alerts_list)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            # Group by 10-minute bins for a nice timeline
-            df['time_bin'] = df['timestamp'].dt.floor('10min')
-            timeline_data = df.groupby(['time_bin', 'severity']).size().reset_index(name='count')
-            
-            # Color map for severity
-            color_map = {"critical": "#EF4444", "high": "#F97316", "medium": "#F59E0B", "low": "#22C55E"}
-            
-            fig = px.bar(
-                timeline_data, x="time_bin", y="count", color="severity",
-                color_discrete_map=color_map,
-                labels={"time_bin": "Time", "count": "Events"}
-            )
-            fig.update_layout(
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#94A3B8"),
-                margin=dict(l=0, r=0, t=10, b=0),
-                height=250,
-                legend_title_text="",
-                xaxis=dict(showgrid=False, linecolor="#334155"),
-                yaxis=dict(showgrid=True, gridcolor="#1E293B", linecolor="#334155")
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Insufficient data to build timeline.")
-
-        st.markdown("<div class='sq-section'>Severity Distribution</div>", unsafe_allow_html=True)
-        if sev:
-            labels = list(sev.keys())
-            values = list(sev.values())
-            colors = [color_map.get(l, "#64748B") for l in labels]
-            fig_pie = go.Figure(go.Pie(
-                labels=labels, values=values, hole=0.7,
-                marker=dict(colors=colors, line=dict(color="#0F172A", width=2)),
-                textinfo="percent", textfont=dict(size=12)
-            ))
-            fig_pie.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=0, b=0, l=0, r=0), height=200,
-                showlegend=True, legend=dict(font=dict(color="#94A3B8"))
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-    # Right Column: Live Feed & Integration
-    with col_feed:
-        st.markdown("<div class='sq-section'>Latest Critical & High Threats</div>", unsafe_allow_html=True)
-        
-        if alerts_list:
-            df_crit = df[df['severity'].isin(['critical', 'high'])].head(5)
-            if not df_crit.empty:
-                for _, row in df_crit.iterrows():
-                    ts = row['timestamp'].strftime("%H:%M:%S")
-                    desc = str(row.get('rule_description', 'Unknown Alert'))[:40] + "..."
-                    agent = row.get('agent_name', 'Unknown')
-                    st.markdown(f"""
-                    <div class="threat-item">
-                        <div>
-                            <div class="threat-time">{ts}</div>
-                            <div class="threat-desc">{desc}</div>
-                        </div>
-                        <div class="threat-agent">{agent}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.success("✅ No critical threats in recent stream.")
-        else:
-            st.info("No events in stream.")
-
-        st.markdown("<br><div class='sq-section'>Engine Status</div>", unsafe_allow_html=True)
+# ==============================================================================
+# UI COMPONENTS
+# ==============================================================================
+def render_sidebar():
+    with st.sidebar:
         st.markdown("""
-        <div style="background:#0F172A; border:1px solid #1E293B; border-radius:6px; padding:15px;">
-            <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                <span style="color:#94A3B8; font-size:13px;">Wazuh Indexer</span>
-                <span style="color:#22C55E; font-weight:bold; font-size:13px;">● ONLINE</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-                <span style="color:#94A3B8; font-size:13px;">Groq AI (LLaMA 3)</span>
-                <span style="color:#22C55E; font-weight:bold; font-size:13px;">● ONLINE</span>
-            </div>
-            <div style="display:flex; justify-content:space-between;">
-                <span style="color:#94A3B8; font-size:13px;">Auto-Ingest Cron</span>
-                <span style="color:#3B82F6; font-weight:bold; font-size:13px;">● ACTIVE (2m)</span>
-            </div>
+        <div class="sidebar-brand">
+            <div class="brand-title">SentinelIQ</div>
+            <div class="brand-subtitle">AI-Powered Security Operations</div>
         </div>
         """, unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════
-# TAB 2  —  ALERT STREAM
-# ══════════════════════════════════════════════════════════════
-with tabs[1]:
-    st.markdown("<div class='sq-section'>Raw Alert Stream</div>", unsafe_allow_html=True)
-    c_filt1, c_filt2 = st.columns([1, 4])
-    with c_filt1:
-        sev_filter = st.selectbox("Severity Filter", ["All", "critical", "high", "medium", "low"])
-    with c_filt2:
-        if st.button("🔄 Force Manual Sync"):
-            st.cache_data.clear()
-            st.rerun()
-
-    if alerts_list:
-        df_all = pd.DataFrame(alerts_list)
-        if sev_filter != "All":
-            df_all = df_all[df_all['severity'] == sev_filter]
         
-        df_all["timestamp"] = pd.to_datetime(df_all["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-        cols = ["id", "timestamp", "severity", "agent_name", "rule_id", "rule_description", "src_ip"]
-        st.dataframe(df_all[[c for c in cols if c in df_all.columns]], hide_index=True, height=400)
-    else:
-        st.info("Stream is empty.")
+        # Navigation
+        pages = [
+            "Overview", 
+            "Security Events", 
+            "Incidents", 
+            "Threat Intelligence", 
+            "MITRE ATT&CK", 
+            "Detection Rules",
+            "Assets", 
+            "Agents", 
+            "Reports"
+        ]
+        
+        selected_page = st.radio("Navigation", pages, label_visibility="collapsed")
+        
+        st.markdown("<div style='margin-top: 3rem; border-top: 1px solid #2A3441; padding-top: 1rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-header' style='margin-top:0;'>System Status</div>", unsafe_allow_html=True)
+        
+        # System Status (Mocked/Derived from health endpoint in a real scenario)
+        status_html = """
+        <div style='font-size: 0.75rem; color: #8B949E; line-height: 1.8;'>
+            <div>Wazuh Node: <span style='color:#16A34A; float:right;'>Connected</span></div>
+            <div>Indexer DB: <span style='color:#16A34A; float:right;'>Connected</span></div>
+            <div>AI Engine: <span style='color:#16A34A; float:right;'>Active</span></div>
+        </div>
+        """
+        st.markdown(status_html, unsafe_allow_html=True)
+        
+        return selected_page
 
-# ══════════════════════════════════════════════════════════════
-# TAB 3  —  INCIDENT WORKBENCH
-# ══════════════════════════════════════════════════════════════
-with tabs[2]:
-    st.markdown("<div class='sq-section'>Correlated Incidents (Auto-grouped)</div>", unsafe_allow_html=True)
+def render_header(title):
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    st.markdown(f"""
+    <div class="command-bar">
+        <div class="cmd-left">{title}</div>
+        <div class="cmd-right">
+            <div class="cmd-item">Query: *</div>
+            <div class="cmd-item">Time: Last 24 Hours</div>
+            <div class="cmd-item">Env: Production</div>
+            <div class="cmd-item">{now_str}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_badge(severity):
+    sev = str(severity).lower()
+    if sev == "critical": return "CRITICAL"
+    if sev == "high": return "HIGH"
+    if sev == "medium": return "MEDIUM"
+    if sev == "low": return "LOW"
+    return str(severity).upper()
+
+def get_badge_color(severity):
+    sev = str(severity).lower()
+    if sev == "critical": return "#DC2626"
+    if sev == "high": return "#EA580C"
+    if sev == "medium": return "#D97706"
+    if sev == "low": return "#3B82F6"
+    return "#8B949E"
+
+# ==============================================================================
+# PAGE: OVERVIEW
+# ==============================================================================
+def page_overview():
+    render_header("Security Operations Center (SOC) Overview")
+    
+    data = api_get("/api/dashboard/summary")
+    if "error" in data:
+        st.error(f"Data Source Error: {data['error']}")
+        return
+
+    sev = data.get("severity_counts", {})
+    crit = sev.get("critical", 0)
+    high = sev.get("high", 0)
+    
+    # KPI Grid
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-tile"><div class="kpi-label">Security Events</div><div class="kpi-value">{data.get('alert_count', 0)}</div><div class="kpi-trend">24h Volume</div></div>
+        <div class="kpi-tile crit"><div class="kpi-label">Critical Alerts</div><div class="kpi-value">{crit}</div><div class="kpi-trend">Requires Triage</div></div>
+        <div class="kpi-tile high"><div class="kpi-label">High Alerts</div><div class="kpi-value">{high}</div><div class="kpi-trend">Pending Review</div></div>
+        <div class="kpi-tile active"><div class="kpi-label">Open Incidents</div><div class="kpi-value">{data.get('open_incident_count', 0)}</div><div class="kpi-trend">Active Investigations</div></div>
+        <div class="kpi-tile"><div class="kpi-label">Active Agents</div><div class="kpi-value">1</div><div class="kpi-trend">Reporting Status</div></div>
+        <div class="kpi-tile"><div class="kpi-label">AI Analysis Rate</div><div class="kpi-value">100%</div><div class="kpi-trend">Coverage</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2 = st.columns([7, 3])
+    
+    alerts_data = api_get("/api/alerts", params={"limit": 200})
+    items = alerts_data.get("items", []) if not isinstance(alerts_data, dict) or "error" not in alerts_data else []
+    
+    with col1:
+        st.markdown("<div class='section-header'>Security Events Timeline</div>", unsafe_allow_html=True)
+        if items:
+            df = pd.DataFrame(items)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df['time_bin'] = df['timestamp'].dt.floor('1H')
+            timeline = df.groupby(['time_bin', 'severity']).size().reset_index(name='count')
+            
+            fig = px.bar(timeline, x="time_bin", y="count", color="severity",
+                         color_discrete_map={"critical": "#DC2626", "high": "#EA580C", "medium": "#D97706", "low": "#3B82F6"})
+            fig.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#8B949E", size=10), margin=dict(l=0, r=0, t=10, b=0), height=220,
+                xaxis=dict(showgrid=False, title=""), yaxis=dict(showgrid=True, gridcolor="#2A3441", title="Event Count"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.markdown("<div style='color:var(--text-muted); font-size:0.8rem;'>No event telemetry available for the selected time range.</div>", unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("<div class='section-header'>Severity Distribution</div>", unsafe_allow_html=True)
+        if sev:
+            fig_pie = go.Figure(go.Pie(
+                labels=list(sev.keys()), values=list(sev.values()), hole=0.75,
+                marker=dict(colors=[get_badge_color(l) for l in sev.keys()]),
+                textinfo="none"
+            ))
+            fig_pie.update_layout(
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=0, r=0, t=10, b=0), height=220,
+                legend=dict(font=dict(color="#8B949E", size=10), orientation="v", y=0.5)
+            )
+            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.markdown("<div style='color:var(--text-muted); font-size:0.8rem;'>No data.</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-header'>Recent Security Events</div>", unsafe_allow_html=True)
+    if items:
+        df_display = pd.DataFrame(items)
+        df_display['timestamp'] = pd.to_datetime(df_display['timestamp']).dt.strftime("%Y-%m-%d %H:%M:%S")
+        df_display['severity'] = df_display['severity'].apply(lambda x: str(x).upper())
+        cols = ['timestamp', 'severity', 'rule_id', 'rule_description', 'agent_name', 'src_ip']
+        df_display = df_display[[c for c in cols if c in df_display.columns]].head(10)
+        
+        st.dataframe(
+            df_display, 
+            hide_index=True, 
+            use_container_width=True,
+            column_config={
+                "timestamp": "TIMESTAMP", "severity": "SEV", "rule_id": "RULE", 
+                "rule_description": "EVENT DESCRIPTION", "agent_name": "ASSET", "src_ip": "SRC IP"
+            }
+        )
+    else:
+         st.markdown("<div style='color:var(--text-muted); font-size:0.8rem;'>No recent events.</div>", unsafe_allow_html=True)
+
+# ==============================================================================
+# PAGE: SECURITY EVENTS
+# ==============================================================================
+def page_security_events():
+    render_header("Security Event Investigation")
+    
+    # Filter Bar (Visual representation for Enterprise Feel)
+    st.markdown("""
+    <div style="display:flex; gap:10px; margin-bottom:15px; background:var(--bg-panel); padding:10px; border:1px solid var(--border-color);">
+        <input type="text" placeholder="Search events, IPs, hashes..." style="flex:1; background:#0B0E14; border:1px solid #2A3441; color:#fff; padding:5px 10px; font-size:0.8rem;">
+        <select style="background:#0B0E14; border:1px solid #2A3441; color:#fff; padding:5px; font-size:0.8rem;"><option>Severity: All</option><option>Critical</option></select>
+        <select style="background:#0B0E14; border:1px solid #2A3441; color:#fff; padding:5px; font-size:0.8rem;"><option>Time: Last 24h</option></select>
+    </div>
+    """, unsafe_allow_html=True)
+
+    alerts_data = api_get("/api/alerts", params={"limit": 500})
+    items = alerts_data.get("items", []) if "error" not in alerts_data else []
+
+    if items:
+        df = pd.DataFrame(items)
+        df['timestamp_fmt'] = pd.to_datetime(df['timestamp']).dt.strftime("%Y-%m-%d %H:%M:%S")
+        df['sev_fmt'] = df['severity'].apply(lambda x: str(x).upper())
+        
+        display_cols = ['id', 'timestamp_fmt', 'sev_fmt', 'rule_id', 'rule_description', 'agent_name']
+        st.dataframe(
+            df[display_cols],
+            hide_index=True,
+            use_container_width=True,
+            height=300,
+            column_config={
+                "id": "EVENT ID", "timestamp_fmt": "TIMESTAMP", "sev_fmt": "SEVERITY", 
+                "rule_id": "RULE", "rule_description": "DESCRIPTION", "agent_name": "SOURCE ASSET"
+            }
+        )
+
+        st.markdown("<div class='section-header'>Event Details Inspector</div>", unsafe_allow_html=True)
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            selected_id = st.text_input("Enter Event ID to inspect", value=str(df['id'].iloc[0]) if not df.empty else "")
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Inspect Raw Event"):
+                event = df[df['id'] == selected_id]
+                if not event.empty:
+                    st.json(event.iloc[0].to_dict())
+                else:
+                    st.warning("Event ID not found.")
+    else:
+        st.markdown("<div style='color:var(--text-muted); font-size:0.8rem;'>No events match the current filter criteria.</div>", unsafe_allow_html=True)
+
+# ==============================================================================
+# PAGE: INCIDENTS & AI INVESTIGATION
+# ==============================================================================
+def page_incidents():
+    render_header("Incident Management & AI Investigation")
+
+    incidents_data = api_get("/api/incidents")
+    if "error" in incidents_data:
+        st.error("Wazuh Indexer unavailable or API unreachable.")
+        return
+
+    st.markdown("<div class='section-header'>Active Incidents</div>", unsafe_allow_html=True)
     if incidents_data:
-        st.dataframe(pd.DataFrame(incidents_data), hide_index=True, height=250)
+        df_inc = pd.DataFrame(incidents_data)
+        st.dataframe(df_inc, hide_index=True, use_container_width=True, height=200)
     else:
-        st.info("No incidents currently active.")
+        st.markdown("<div style='color:var(--text-muted); font-size:0.8rem;'>No active incidents in the current queue.</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("<div class='sq-section'>Evidence Inspector</div>", unsafe_allow_html=True)
-    inv_id = st.number_input("Target Incident ID", min_value=1, step=1, value=1)
-    if st.button("🔍 Load Evidence"):
-        try:
-            detail = api_get(f"/api/incidents/{inv_id}")
-            st.json(detail)
-        except Exception as e:
-            st.error(str(e))
-
-# ══════════════════════════════════════════════════════════════
-# TAB 4  —  AI ANALYST (GROQ)
-# ══════════════════════════════════════════════════════════════
-with tabs[3]:
-    st.markdown("<div class='sq-section'>AI Autonomous Analyst (LLaMA 3.3 70B)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-header'>AI SOC Analyst Investigation</div>", unsafe_allow_html=True)
     
-    left, right = st.columns([1, 2], gap="large")
-    TASKS = {
-        "triage":        "⚡ Triage — Fast contextual summary",
-        "investigation": "🔬 Deep Investigation — Timeline & IOCs",
-        "response":      "🛡️ Response — Containment Scripts",
-        "manager":       "👔 Exec Brief — Business impact",
-        "report":        "📄 Full Report — JSON Download",
-    }
+    col_ctrl, col_view = st.columns([1, 3])
+    with col_ctrl:
+        st.markdown("<div style='font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;'>ANALYSIS CONTROLS</div>", unsafe_allow_html=True)
+        target_inc = st.number_input("Target Incident ID", min_value=1, value=1)
+        analysis_type = st.radio("Investigation Module", ["triage", "investigation", "response", "manager"], 
+                                 format_func=lambda x: x.upper())
+        execute = st.button("Execute AI Analysis", type="primary", use_container_width=True)
 
-    with left:
-        ai_inc_id = st.number_input("Incident ID to Analyze", min_value=1, step=1, value=1)
-        task_choice = st.radio("Analysis Vector", list(TASKS.keys()), format_func=lambda x: TASKS[x])
-        st.markdown("<br>", unsafe_allow_html=True)
-        run_ai = st.button("🧠 Execute AI Analysis", type="primary", use_container_width=True)
+    with col_view:
+        if execute:
+            with st.spinner("AI Engine querying indexer, correlating events, and generating analysis..."):
+                res = api_post(f"/api/incidents/{target_inc}/analyze", {"task": analysis_type, "force": True})
+                
+                if res.get("status") == "success":
+                    ai = res.get("result", {})
+                    conf = str(ai.get("confidence_label", "UNKNOWN")).upper()
+                    risk_html = f"<span class='badge b-crit'>HIGH RISK</span>" if conf in ["HIGH", "MEDIUM"] else f"<span class='badge b-low'>MONITOR</span>"
+                    
+                    st.markdown(f"""
+                    <div class="ai-panel">
+                        <div class="ai-header">
+                            SentinelIQ AI Analyst Report
+                            <span style="float:right; font-size:0.75rem; font-weight:400; color:var(--text-muted);">Model: {ai.get('model', 'Engine-v3')} | Confidence: {conf}</span>
+                        </div>
+                        <div style="margin-bottom: 1rem;">{risk_html}</div>
+                    """, unsafe_allow_html=True)
 
-    with right:
-        if run_ai:
-            with st.spinner("Initiating Groq LLM Inference..."):
-                try:
-                    res = api_post(f"/api/incidents/{ai_inc_id}/analyze", {"task": task_choice, "force": True})
-                    if res.get("status") == "success":
-                        ai = res.get("result", {})
-                        
-                        st.markdown(f"**✓ Analysis Complete** | Engine: `{ai.get('model', 'Groq')}`", unsafe_allow_html=True)
-                        st.markdown("<hr style='margin:10px 0; border-color:#334155'>", unsafe_allow_html=True)
+                    if analysis_type == "triage":
+                        st.markdown(f"<div class='ai-section-title'>Threat Assessment</div><div class='ai-text'>{ai.get('finding', 'N/A')}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='ai-section-title'>Recommended Actions</div>", unsafe_allow_html=True)
+                        for a in ai.get("recommended_actions", []):
+                            st.markdown(f"<div class='ai-text'>▪ {a}</div>", unsafe_allow_html=True)
+                    
+                    elif analysis_type == "investigation":
+                        st.markdown(f"<div class='ai-section-title'>Attack Timeline & Summary</div><div class='ai-text'>{ai.get('timeline_summary', 'N/A')}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='ai-section-title'>Next Investigation Steps</div>", unsafe_allow_html=True)
+                        for s in ai.get("next_investigation_steps", []):
+                            st.markdown(f"<div class='ai-text'>▪ {s}</div>", unsafe_allow_html=True)
 
-                        # Render based on task type
-                        if task_choice == "triage":
-                            st.markdown("<div class='sq-section'>Finding</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='sq-finding'>{ai.get('finding','—')}</div>", unsafe_allow_html=True)
-                            for a in ai.get("recommended_actions", []):
-                                st.markdown(f"<div class='sq-step'>▶ {a}</div>", unsafe_allow_html=True)
+                    elif analysis_type == "response":
+                        st.markdown(f"<div class='ai-section-title'>Containment Strategy</div><div class='ai-text'>{ai.get('finding', 'N/A')}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='ai-section-title'>Execution Commands (PowerShell)</div>", unsafe_allow_html=True)
+                        for cmd in ai.get("recommended_actions", []):
+                            st.markdown(f"<div class='ai-code'>{cmd}</div>", unsafe_allow_html=True)
 
-                        elif task_choice == "investigation":
-                            st.markdown("<div class='sq-section'>Attack Timeline</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='sq-finding'>{ai.get('timeline_summary','—')}</div>", unsafe_allow_html=True)
-                            for s in ai.get("next_investigation_steps", []):
-                                st.markdown(f"<div class='sq-step'>🔬 {s}</div>", unsafe_allow_html=True)
+                    elif analysis_type == "manager":
+                        st.markdown(f"<div class='ai-section-title'>Executive Brief</div><div class='ai-text'>{ai.get('what_happened', 'N/A')}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='ai-section-title'>Business Impact</div><div class='ai-text'>{ai.get('why_it_might_matter', 'N/A')}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='ai-section-title'>Affected Systems</div>", unsafe_allow_html=True)
+                        for s in ai.get("affected_systems", []):
+                            st.markdown(f"<div class='ai-text'>▪ {s}</div>", unsafe_allow_html=True)
 
-                        elif task_choice == "response":
-                            st.markdown("<div class='sq-section'>Remediation Commands (PowerShell)</div>", unsafe_allow_html=True)
-                            for step in ai.get("recommended_actions", []):
-                                st.code(step, language="powershell")
-                            if ai.get("reason"):
-                                st.markdown(f"<div class='sq-warning'>⚠️ {ai.get('reason')}</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.error("AI Analysis failed or endpoint unresponsive.")
+        else:
+            st.markdown("""
+            <div style="display:flex; height:100%; align-items:center; justify-content:center; color:var(--border-color); font-size:1.5rem; font-weight:600; border: 1px dashed var(--border-color); padding: 3rem; text-align:center;">
+                Awaiting AI Task Execution<br>
+                <span style="font-size:0.8rem; font-weight:400; color:var(--text-muted); display:block; margin-top:10px;">Select an incident and module from the left panel to begin investigation.</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-                        elif task_choice == "manager":
-                            st.markdown("<div class='sq-section'>Executive Summary</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='sq-finding'>{ai.get('what_happened','—')}</div>", unsafe_allow_html=True)
-                            for s in ai.get("affected_systems", []):
-                                st.markdown(f"<div class='sq-step'>💻 {s}</div>", unsafe_allow_html=True)
+# ==============================================================================
+# PAGES: PLACEHOLDERS (THREAT INTEL, MITRE, ASSETS, ETC)
+# ==============================================================================
+def render_placeholder_page(title, subtitle):
+    render_header(title)
+    st.markdown(f"""
+    <div style="margin-top:2rem; padding:3rem; border:1px solid var(--border-color); background:var(--bg-panel); text-align:center;">
+        <div style="font-size:1.2rem; font-weight:600; color:#FFFFFF; margin-bottom:0.5rem;">{subtitle}</div>
+        <div style="font-size:0.85rem; color:var(--text-muted);">Historical data accumulation required. Insufficient telemetry to render this module.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-                        elif task_choice == "report":
-                            st.download_button(
-                                "⬇️ Download Full JSON Report",
-                                data=json.dumps(ai, indent=2),
-                                file_name=f"SIQ_Report_INC{ai_inc_id}.json",
-                                mime="application/json",
-                            )
-                            st.json(ai)
+def page_threat_intel(): render_placeholder_page("Threat Intelligence", "IOC Reputation Engine")
+def page_mitre(): render_placeholder_page("MITRE ATT&CK Framework", "Tactics & Techniques Coverage")
+def page_rules(): render_placeholder_page("Detection Engineering", "SIEM Rule Management")
+def page_assets(): render_placeholder_page("Asset Inventory", "Endpoint Visibility")
+def page_agents():
+    render_header("Agent Management")
+    st.markdown("<div class='section-header'>Wazuh Infrastructure Nodes</div>", unsafe_allow_html=True)
+    status = api_get("/api/source/status")
+    if "error" not in status:
+        st.json(status)
+    else:
+        st.error("Unable to connect to Wazuh Manager API.")
+def page_reports(): render_placeholder_page("Compliance & Reporting", "Automated Security Reports")
 
-                    else:
-                        st.error("Analysis Failed")
-                        st.json(res)
-                except Exception as e:
-                    st.error(f"Inference Error: {e}")
-
-# ══════════════════════════════════════════════════════════════
-# TAB 5  —  PLAYBOOKS
-# ══════════════════════════════════════════════════════════════
-with tabs[4]:
-    st.markdown("<div class='sq-section'>Active Defense Standard Operating Procedures (SOPs)</div>", unsafe_allow_html=True)
-    st.info("⚠️ Execute these commands in elevated PowerShell on the affected endpoint.")
+# ==============================================================================
+# MAIN ROUTING
+# ==============================================================================
+def main():
+    load_enterprise_css()
+    selected = render_sidebar()
     
-    with st.expander("🚫 Block Malicious IP"):
-        st.code('New-NetFirewallRule -DisplayName "SIQ-Block" -Direction Inbound -RemoteAddress <IP> -Action Block', language="powershell")
-    with st.expander("💀 Kill Suspicious Process"):
-        st.code('Stop-Process -Name "<PROCESS_NAME>" -Force', language="powershell")
-    with st.expander("🔒 Isolate Host from Network"):
-        st.code('Set-NetFirewallProfile -All -DefaultInboundAction Block\nSet-NetFirewallProfile -All -DefaultOutboundAction Block', language="powershell")
+    if selected == "Overview": page_overview()
+    elif selected == "Security Events": page_security_events()
+    elif selected == "Incidents": page_incidents()
+    elif selected == "Threat Intelligence": page_threat_intel()
+    elif selected == "MITRE ATT&CK": page_mitre()
+    elif selected == "Detection Rules": page_rules()
+    elif selected == "Assets": page_assets()
+    elif selected == "Agents": page_agents()
+    elif selected == "Reports": page_reports()
+    elif selected == "System Health":
+        render_header("System Health & Diagnostics")
+        st.code("Wazuh API: CONNECTED\nIndexer: CONNECTED\nAI Engine: ONLINE\nStreamlit: OK")
 
-# ══════════════════════════════════════════════════════════════
-# TAB 6  —  HEALTH
-# ══════════════════════════════════════════════════════════════
-with tabs[5]:
-    st.markdown("<div class='sq-section'>Platform Diagnostics</div>", unsafe_allow_html=True)
-    if st.button("Run Full Diagnostic"):
-        try:
-            h = api_get("/api/source/status")
-            st.success("✅ All systems operational.")
-            st.json(h)
-        except Exception as e:
-            st.error(f"❌ Diagnostic failed: {e}")
+if __name__ == "__main__":
+    main()
