@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ==============================================================================
 # CONFIGURATION & INITIALIZATION
