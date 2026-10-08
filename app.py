@@ -401,57 +401,60 @@ def sev_color(sev):
     return {"critical": "#F85149", "high": "#D29922", "medium": "#388BFD", "low": "#3FB950"}.get(s, "#484F58")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# SIDEBAR
+# SIDEBAR (radio-based nav — more reliable in Streamlit)
 # ──────────────────────────────────────────────────────────────────────────────
+ALL_PAGES = [
+    "Overview", "Security Events", "Incidents",
+    "Threat Intelligence", "MITRE ATT&CK", "Detection Rules",
+    "Assets", "Agents", "Reports"
+]
+
 def render_sidebar():
     with st.sidebar:
+        # Brand
         st.markdown("""
-        <div class="siq-brand">
-            <div class="siq-brand-name">SentinelIQ</div>
-            <div class="siq-brand-sub">AI-Powered Security Operations</div>
+        <div style="padding:1rem 1rem 0.75rem 1rem; border-bottom:1px solid #21262D;">
+            <div style="font-size:1.1rem;font-weight:700;color:#E6EDF3;letter-spacing:0.3px;">SentinelIQ</div>
+            <div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;color:#388BFD;margin-top:2px;white-space:nowrap;">AI-Powered Security Operations</div>
         </div>
         """, unsafe_allow_html=True)
 
-        NAV_GROUPS = {
-            "Operations": ["Overview", "Security Events", "Incidents"],
-            "Intelligence": ["Threat Intelligence", "MITRE ATT&CK", "Detection Rules"],
-            "Infrastructure": ["Assets", "Agents", "Reports"],
-        }
+        # Navigation via radio (hidden native, styled via CSS)
+        st.markdown("<div style='margin-top:0.75rem;'>", unsafe_allow_html=True)
+        selected = st.radio(
+            "nav",
+            ALL_PAGES,
+            index=ALL_PAGES.index(st.session_state.nav) if st.session_state.nav in ALL_PAGES else 0,
+            label_visibility="collapsed",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        if selected != st.session_state.nav:
+            st.session_state.nav = selected
+            st.rerun()
 
-        for group, pages in NAV_GROUPS.items():
-            st.markdown(f"<div class='nav-group'>{group}</div>", unsafe_allow_html=True)
-            for page in pages:
-                is_active = st.session_state.nav == page
-                wrap_cls = "nav-active" if is_active else ""
-                prefix = "▶ " if is_active else "   "
-                st.markdown(f"<div class='{wrap_cls}'>", unsafe_allow_html=True)
-                if st.button(f"{prefix}{page}", key=f"nav_{page}"):
-                    st.session_state.nav = page
-                    st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
-
-        # System Status
+        # System Status pinned at bottom
         st.markdown("""
-        <div class="sys-status">
-            <div class="sys-label">System Status</div>
-            <div class="sys-row">
-                <span><span class="sys-dot-green"></span>Wazuh Node</span>
-                <span class="sys-status-ok">Online</span>
-            </div>
-            <div class="sys-row">
-                <span><span class="sys-dot-green"></span>Indexer</span>
-                <span class="sys-status-ok">Connected</span>
-            </div>
-            <div class="sys-row">
-                <span><span class="sys-dot-green"></span>AI Engine</span>
-                <span class="sys-status-ok">Active</span>
-            </div>
-            <div class="sys-row">
-                <span><span class="sys-dot-green"></span>Ingest Cron</span>
-                <span class="sys-status-ok">2m cycle</span>
+        <div style="position:fixed;bottom:0;width:220px;padding:0.75rem 1rem;
+                    border-top:1px solid #21262D;background:#161B22;">
+            <div style="font-size:0.6rem;text-transform:uppercase;letter-spacing:0.8px;
+                        color:#484F58;margin-bottom:0.5rem;font-weight:600;">System Status</div>
+            <div style="font-size:0.72rem;color:#8B949E;line-height:1.8;">
+                <div style="display:flex;justify-content:space-between;">
+                    <span>&#9679; Wazuh Node</span><span style="color:#3FB950;">Online</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span>&#9679; Indexer</span><span style="color:#3FB950;">Connected</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span>&#9679; AI Engine</span><span style="color:#3FB950;">Active</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                    <span>&#9679; Ingest Cron</span><span style="color:#388BFD;">2m cycle</span>
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # TOPBAR
