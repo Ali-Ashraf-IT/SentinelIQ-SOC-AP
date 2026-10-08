@@ -808,7 +808,8 @@ def page_security_events():
     with fc1:
         sev_filter = st.selectbox("Severity", ["All", "critical", "high", "medium", "low"], label_visibility="collapsed")
     with fc2:
-        limit = st.selectbox("Max Results", [100, 250, 500], label_visibility="collapsed")
+        # FastAPI backend enforces le=200 max limit
+        limit = st.selectbox("Max Results", [50, 100, 200], label_visibility="collapsed")
     with fc3:
         if st.button("Refresh Stream", type="primary"):
             st.cache_data.clear()
@@ -963,7 +964,8 @@ def page_agents():
 # ──────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=60, show_spinner=False)
 def load_all_alerts():
-    resp = api_get("/api/alerts", params={"limit": 500})
+    # Backend strictly limits this to max 200 (le=200 in FastAPI alerts.py)
+    resp = api_get("/api/alerts", params={"limit": 200})
     if isinstance(resp, dict) and "__error__" in resp:
         st.error(f"🚨 **Backend Connection Error:** `{resp['__error__']}`")
         st.info("Check Streamlit Secrets for correct BACKEND_API_URL and ensure Cloudflare isn't blocking Streamlit IPs.")
