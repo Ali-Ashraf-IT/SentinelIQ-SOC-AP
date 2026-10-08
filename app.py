@@ -445,7 +445,7 @@ def sev_color(sev):
 # SIDEBAR (radio-based nav — more reliable in Streamlit)
 # ──────────────────────────────────────────────────────────────────────────────
 ALL_PAGES = [
-    "Overview", "Security Events", "Incidents", "AI Analyst",
+    "Overview", "Security Events", "Incidents", "Threat Hunter", "AI Analyst",
     "Threat Intelligence", "MITRE ATT&CK", "Detection Rules",
     "Assets", "Agents", "Reports"
 ]
@@ -971,7 +971,8 @@ MITRE_MAP = {
 
 def get_mitre_name(t_code):
     clean_code = str(t_code).strip()
-    return MITRE_MAP.get(clean_code, f"{clean_code} (Advanced Threat Technique)")
+    desc = MITRE_MAP.get(clean_code, "Advanced Threat Technique")
+    return f"{clean_code} — {desc}"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: THREAT INTELLIGENCE (derived from src_ip / dst_ip in alerts)
@@ -1349,6 +1350,122 @@ def page_reports():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# PAGE: AI THREAT HUNTER (Copilot / KQL Search)
+# ──────────────────────────────────────────────────────────────────────────────
+import re
+def page_hunter():
+    render_topbar("Threat Hunter — AI Copilot Search")
+    
+    st.markdown("""
+    <div style="padding:1rem; background:rgba(56, 139, 253, 0.1); border:1px solid rgba(56, 139, 253, 0.3); border-radius:4px; margin-bottom:1.5rem;">
+        <div style="color:#79C0FF; font-weight:600; font-size:0.85rem; margin-bottom:0.25rem;">Sentinel Copilot (Natural Language to KQL)</div>
+        <div style="color:#C9D1D9; font-size:0.75rem;">Describe your investigation in plain English. The AI will translate it into a KQL-like query and hunt through the telemetry.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    query = st.text_input("Ask Copilot...", placeholder="e.g. Please let me show last 48 days of any folder or path remove from this end point 10.144.58.120")
+    
+    if query:
+        with st.spinner("🤖 Translating query and searching telemetry..."):
+            import time
+            time.sleep(0.8) # Simulate LLM thinking
+            
+            q_lower = query.lower()
+            
+            # Extract IP
+            ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', query)
+            target_ip = ip_match.group(0) if ip_match else None
+            
+            # Extract Time
+            days_match = re.search(r'(\d+)\s*days?', q_lower)
+            hours_match = re.search(r'(\d+)\s*hours?', q_lower)
+            days_back = int(days_match.group(1)) if days_match else (int(hours_match.group(1))/24 if hours_match else None)
+            
+            # Extract Keywords
+            keywords = []
+            if "delete" in q_lower or "remove" in q_lower: keywords.extend(["delete", "remove"])
+            if "login" in q_lower or "auth" in q_lower: keywords.append("authentication")
+            if "registry" in q_lower: keywords.append("registry")
+            if "folder" in q_lower or "path" in q_lower or "directory" in q_lower: keywords.extend(["path", "directory", "folder"])
+            if "process" in q_lower: keywords.append("process")
+            if "network" in q_lower or "connection" in q_lower: keywords.append("network")
+            
+            # Generate pseudo KQL for UI
+            kql_parts = ["SecurityAlerts"]
+            if days_back:
+                if hours_match and not days_match:
+                    kql_parts.append(f"where TimeGenerated > ago({hours_match.group(1)}h)")
+                else:
+                    kql_parts.append(f"where TimeGenerated > ago({int(days_back)}d)")
+            if target_ip:
+                kql_parts.append(f"where AgentIP == '{target_ip}' or SourceIP == '{target_ip}'")
+            if keywords:
+                kw_str = " or ".join([f"LogDetails contains '{k}'" for k in keywords])
+                kql_parts.append(f"where ({kw_str})")
+                
+            kql_query = "\n| ".join(kql_parts)
+            if len(kql_parts) == 1:
+                kql_query += "\n| take 100"
+                
+            st.markdown(f"""
+            <div style="background:#0D1117; border:1px solid #30363D; border-radius:4px; padding:1rem; margin-bottom:1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#E6EDF3;">
+                <div style="color:#8B949E; margin-bottom:0.5rem; font-size:0.7rem; font-family:'Inter',sans-serif; letter-spacing:0.5px;">GENERATED KQL QUERY</div>
+                <span style="color:#79C0FF; white-space:pre-wrap;">{kql_query}</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Filtering execution
+            items = load_all_alerts()
+            if not items:
+                st.warning("No alert data available in backend to search.")
+                return
+                
+            df = pd.DataFrame(items)
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
+            
+            if days_back:
+                cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=days_back)
+                df = df[df['timestamp'] >= cutoff]
+                
+            if target_ip:
+                df = df[
+                    (df['agent_ip'] == target_ip) | 
+                    (df['src_ip'] == target_ip) | 
+                    (df['dst_ip'] == target_ip) |
+                    (df['full_log'].str.contains(target_ip, na=False))
+                ]
+                
+            if keywords:
+                mask = df['full_log'].str.contains('|'.join(keywords), case=False, na=False) | \
+                       df['rule_description'].str.contains('|'.join(keywords), case=False, na=False)
+                df = df[mask]
+                
+            st.markdown(f"<div class='sec-header'>Hunt Results — {len(df)} Matches</div>", unsafe_allow_html=True)
+            
+            if df.empty:
+                st.info("No logs matched this specific investigation query in the current dataset.")
+            else:
+                df = df.sort_values("timestamp", ascending=False)
+                rows_html = ""
+                for _, r in df.iterrows():
+                    badge = sev_badge(r.get("severity", "unknown"))
+                    rows_html += f'''<tr>
+                        <td class="ts-cell">{fmt_ts(r["timestamp"])}</td>
+                        <td>{badge}</td>
+                        <td class="agent-cell">{str(r.get("agent_name", "Unknown"))[:15]}</td>
+                        <td class="rule-id">{str(r.get("rule_description", ""))[:40]}</td>
+                        <td class="desc-cell">{str(r.get("full_log", ""))[:150]}...</td>
+                    </tr>'''
+                
+                st.markdown(f'''
+                <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+                <table class="evt-table">
+                    <thead><tr><th>Time</th><th>Severity</th><th>Agent</th><th>Rule</th><th>Log Details</th></tr></thead>
+                    <tbody>{rows_html}</tbody>
+                </table></div>''', unsafe_allow_html=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # MAIN ROUTER
 # ──────────────────────────────────────────────────────────────────────────────
 def main():
@@ -1358,6 +1475,7 @@ def main():
     if page == "Overview":              page_overview()
     elif page == "Security Events":     page_security_events()
     elif page == "Incidents":           page_incidents()
+    elif page == "Threat Hunter":       page_hunter()
     elif page == "AI Analyst":          page_ai_analyst()
     elif page == "Threat Intelligence": page_threat_intel()
     elif page == "MITRE ATT&CK":        page_mitre()
@@ -1365,5 +1483,6 @@ def main():
     elif page == "Assets":              page_assets()
     elif page == "Agents":              page_agents()
     elif page == "Reports":             page_reports()
+    else: page_overview()
 
 main()
