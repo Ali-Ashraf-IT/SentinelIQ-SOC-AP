@@ -1350,119 +1350,147 @@ def page_reports():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# PAGE: AI THREAT HUNTER (Copilot / KQL Search)
+# PAGE: AI THREAT HUNTER (Smart Copilot Search)
 # ──────────────────────────────────────────────────────────────────────────────
-import re
 def page_hunter():
     render_topbar("Threat Hunter — AI Copilot Search")
     
     st.markdown("""
     <div style="padding:1rem; background:rgba(56, 139, 253, 0.1); border:1px solid rgba(56, 139, 253, 0.3); border-radius:4px; margin-bottom:1.5rem;">
-        <div style="color:#79C0FF; font-weight:600; font-size:0.85rem; margin-bottom:0.25rem;">Sentinel Copilot (Natural Language to KQL)</div>
-        <div style="color:#C9D1D9; font-size:0.75rem;">Describe your investigation in plain English. The AI will translate it into a KQL-like query and hunt through the telemetry.</div>
+        <div style="color:#79C0FF; font-weight:600; font-size:0.85rem; margin-bottom:0.25rem;">Sentinel Copilot (Smart Natural Language Search)</div>
+        <div style="color:#C9D1D9; font-size:0.75rem;">Describe your investigation in plain English. The AI will clarify incomplete queries, translate them into KQL, and hunt through the telemetry.</div>
     </div>
     """, unsafe_allow_html=True)
     
-    query = st.text_input("Ask Copilot...", placeholder="e.g. Please let me show last 48 days of any folder or path remove from this end point 10.144.58.120")
+    if "hunter_chat" not in st.session_state:
+        st.session_state.hunter_chat = [{"role": "assistant", "content": "Hello! I am Sentinel Copilot. What are you hunting for today?"}]
+        
+    for msg in st.session_state.hunter_chat:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    query = st.chat_input("e.g. Please show last 1 days of any folder or path added from endpoint 10.144.58.120")
     
     if query:
-        with st.spinner("🤖 Translating query and searching telemetry..."):
-            import time
-            time.sleep(0.8) # Simulate LLM thinking
+        st.session_state.hunter_chat.append({"role": "user", "content": query})
+        with st.chat_message("user"):
+            st.markdown(query)
             
-            q_lower = query.lower()
-            
-            # Extract IP
-            ip_match = re.search(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', query)
-            target_ip = ip_match.group(0) if ip_match else None
-            
-            # Extract Time
-            days_match = re.search(r'(\d+)\s*days?', q_lower)
-            hours_match = re.search(r'(\d+)\s*hours?', q_lower)
-            days_back = int(days_match.group(1)) if days_match else (int(hours_match.group(1))/24 if hours_match else None)
-            
-            # Extract Keywords
-            keywords = []
-            if "delete" in q_lower or "remove" in q_lower: keywords.extend(["delete", "remove"])
-            if "login" in q_lower or "auth" in q_lower: keywords.append("authentication")
-            if "registry" in q_lower: keywords.append("registry")
-            if "folder" in q_lower or "path" in q_lower or "directory" in q_lower: keywords.extend(["path", "directory", "folder"])
-            if "process" in q_lower: keywords.append("process")
-            if "network" in q_lower or "connection" in q_lower: keywords.append("network")
-            
-            # Generate pseudo KQL for UI
-            kql_parts = ["SecurityAlerts"]
-            if days_back:
-                if hours_match and not days_match:
-                    kql_parts.append(f"where TimeGenerated > ago({hours_match.group(1)}h)")
-                else:
-                    kql_parts.append(f"where TimeGenerated > ago({int(days_back)}d)")
-            if target_ip:
-                kql_parts.append(f"where AgentIP == '{target_ip}' or SourceIP == '{target_ip}'")
-            if keywords:
-                kw_str = " or ".join([f"LogDetails contains '{k}'" for k in keywords])
-                kql_parts.append(f"where ({kw_str})")
+        with st.chat_message("assistant"):
+            with st.spinner("🤖 Analyzing intent and formulating query..."):
+                groq_key = st.secrets.get("GROQ_API_KEY", "")
+                if not groq_key:
+                    st.error("⚠️ `GROQ_API_KEY` is missing in Streamlit Secrets. Please add it to enable Smart Copilot.")
+                    return
                 
-            kql_query = "\n| ".join(kql_parts)
-            if len(kql_parts) == 1:
-                kql_query += "\n| take 100"
+                try:
+                    import groq
+                    import json
+                    client = groq.Groq(api_key=groq_key)
+                    
+                    sys_prompt = """You are SentinelIQ Copilot, an expert SOC Analyst assistant. 
+The user will ask you to search logs in plain English.
+If their request is very ambiguous, ask a clarifying question (intent: clarify).
+If it is clear enough to search, generate Pandas search parameters (intent: search).
+
+Return ONLY a JSON object exactly matching this schema:
+{
+  "intent": "clarify" | "search",
+  "reply_message": "Friendly message to show the user",
+  "kql_query": "Pseudo KQL query string to display (only if intent is search)",
+  "filters": {
+     "days_back": 7,
+     "target_ip": "ip address or null",
+     "keywords": ["list", "of", "words", "to", "search", "like", "add", "added", "create"]
+  }
+}
+Note: Expand search keywords intelligently. If user says 'add', keywords should be ["add", "added", "create", "new"]. If they say 'delete', include ["delete", "remove", "deleted"]."""
+                    
+                    messages = [{"role": "system", "content": sys_prompt}]
+                    for m in st.session_state.hunter_chat[-4:-1]:
+                        messages.append({"role": m["role"], "content": m["content"]})
+                    messages.append({"role": "user", "content": query})
+                    
+                    completion = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                        temperature=0.1
+                    )
+                    
+                    response_data = json.loads(completion.choices[0].message.content)
+                except Exception as e:
+                    st.error(f"AI Engine Error: {str(e)}")
+                    return
+                    
+                intent = response_data.get("intent", "clarify")
+                reply_msg = response_data.get("reply_message", "")
                 
-            st.markdown(f"""
-            <div style="background:#0D1117; border:1px solid #30363D; border-radius:4px; padding:1rem; margin-bottom:1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#E6EDF3;">
-                <div style="color:#8B949E; margin-bottom:0.5rem; font-size:0.7rem; font-family:'Inter',sans-serif; letter-spacing:0.5px;">GENERATED KQL QUERY</div>
-                <span style="color:#79C0FF; white-space:pre-wrap;">{kql_query}</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Filtering execution
-            items = load_all_alerts()
-            if not items:
-                st.warning("No alert data available in backend to search.")
-                return
+                st.markdown(reply_msg)
+                st.session_state.hunter_chat.append({"role": "assistant", "content": reply_msg})
                 
-            df = pd.DataFrame(items)
-            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
-            
-            if days_back:
-                cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=days_back)
-                df = df[df['timestamp'] >= cutoff]
-                
-            if target_ip:
-                df = df[
-                    (df['agent_ip'] == target_ip) | 
-                    (df['src_ip'] == target_ip) | 
-                    (df['dst_ip'] == target_ip) |
-                    (df['full_log'].str.contains(target_ip, na=False))
-                ]
-                
-            if keywords:
-                mask = df['full_log'].str.contains('|'.join(keywords), case=False, na=False) | \
-                       df['rule_description'].str.contains('|'.join(keywords), case=False, na=False)
-                df = df[mask]
-                
-            st.markdown(f"<div class='sec-header'>Hunt Results — {len(df)} Matches</div>", unsafe_allow_html=True)
-            
-            if df.empty:
-                st.info("No logs matched this specific investigation query in the current dataset.")
-            else:
-                df = df.sort_values("timestamp", ascending=False)
-                rows_html = ""
-                for _, r in df.iterrows():
-                    badge = sev_badge(r.get("severity", "unknown"))
-                    rows_html += f'''<tr>
-                        <td class="ts-cell">{fmt_ts(r["timestamp"])}</td>
-                        <td>{badge}</td>
-                        <td class="agent-cell">{str(r.get("agent_name", "Unknown"))[:15]}</td>
-                        <td class="rule-id">{str(r.get("rule_description", ""))[:40]}</td>
-                        <td class="desc-cell">{str(r.get("full_log", ""))[:150]}...</td>
-                    </tr>'''
-                
-                st.markdown(f'''
-                <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
-                <table class="evt-table">
-                    <thead><tr><th>Time</th><th>Severity</th><th>Agent</th><th>Rule</th><th>Log Details</th></tr></thead>
-                    <tbody>{rows_html}</tbody>
-                </table></div>''', unsafe_allow_html=True)
+                if intent == "search":
+                    filters = response_data.get("filters", {})
+                    days_back = filters.get("days_back")
+                    target_ip = filters.get("target_ip")
+                    keywords = filters.get("keywords", [])
+                    kql_query = response_data.get("kql_query", "SecurityAlerts | take 100")
+                    
+                    st.markdown(f"""
+                    <div style="background:#0D1117; border:1px solid #30363D; border-radius:4px; padding:1rem; margin-top:1rem; margin-bottom:1.5rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#E6EDF3;">
+                        <div style="color:#8B949E; margin-bottom:0.5rem; font-size:0.7rem; font-family:'Inter',sans-serif; letter-spacing:0.5px;">GENERATED KQL QUERY</div>
+                        <span style="color:#79C0FF; white-space:pre-wrap;">{kql_query}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    items = load_all_alerts()
+                    if not items:
+                        st.warning("No alert data available in backend to search.")
+                        return
+                        
+                    df = pd.DataFrame(items)
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
+                    
+                    if days_back:
+                        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=days_back)
+                        df = df[df['timestamp'] >= cutoff]
+                        
+                    if target_ip:
+                        df = df[
+                            (df['agent_ip'] == target_ip) | 
+                            (df['src_ip'] == target_ip) | 
+                            (df['dst_ip'] == target_ip) |
+                            (df['full_log'].str.contains(target_ip, na=False))
+                        ]
+                        
+                    if keywords:
+                        mask = df['full_log'].str.contains('|'.join(keywords), case=False, na=False) | \
+                               df['rule_description'].str.contains('|'.join(keywords), case=False, na=False)
+                        df = df[mask]
+                        
+                    st.markdown(f"<div class='sec-header'>Hunt Results — {len(df)} Matches</div>", unsafe_allow_html=True)
+                    
+                    if df.empty:
+                        st.info("No logs matched this specific investigation query in the current dataset.")
+                    else:
+                        df = df.sort_values("timestamp", ascending=False)
+                        rows_html = ""
+                        for _, r in df.iterrows():
+                            badge = sev_badge(r.get("severity", "unknown"))
+                            rows_html += f'''<tr>
+                                <td class="ts-cell">{fmt_ts(r["timestamp"])}</td>
+                                <td>{badge}</td>
+                                <td class="agent-cell">{str(r.get("agent_name", "Unknown"))[:15]}</td>
+                                <td class="rule-id">{str(r.get("rule_description", ""))[:40]}</td>
+                                <td class="desc-cell">{str(r.get("full_log", ""))[:150]}...</td>
+                            </tr>'''
+                        
+                        st.markdown(f'''
+                        <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+                        <table class="evt-table">
+                            <thead><tr><th>Time</th><th>Severity</th><th>Agent</th><th>Rule</th><th>Log Details</th></tr></thead>
+                            <tbody>{rows_html}</tbody>
+                        </table></div>''', unsafe_allow_html=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
