@@ -925,19 +925,297 @@ def page_agents():
         </table>
         """, unsafe_allow_html=True)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# PLACEHOLDER PAGES
-# ──────────────────────────────────────────────────────────────────────────────
-def placeholder_page(title, msg="Insufficient telemetry. Feature requires additional data accumulation."):
-    render_topbar(title)
-    st.markdown(f"""
-    <div style="margin-top:2rem; padding:2.5rem; border:1px solid #21262D;
-                background:#161B22; text-align:center;">
-        <div style="font-size:0.9rem; font-weight:600; color:#E6EDF3; margin-bottom:0.5rem;">{title}</div>
-        <div style="font-size:0.78rem; color:#484F58;">{msg}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPER: Load all alerts (separate cache for these derived pages)
+# ──────────────────────────────────────────────────────────────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def load_all_alerts():
+    resp = api_get("/api/alerts", params={"limit": 500})
+    if "__error__" in resp:
+        return []
+    return resp.get("items", [])
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: THREAT INTELLIGENCE (derived from src_ip / dst_ip in alerts)
+# ──────────────────────────────────────────────────────────────────────────────
+def page_threat_intel():
+    render_topbar("Threat Intelligence — IOC Reputation")
+    items = load_all_alerts()
+    if not items:
+        st.markdown("<div style='padding:2rem;color:#484F58;font-size:0.82rem;'>No alert data available.</div>", unsafe_allow_html=True)
+        return
+
+    df = pd.DataFrame(items)
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+    ioc_rows = []
+    for _, row in df.iterrows():
+        for ip_field, ioc_type in [("src_ip", "Source IP"), ("dst_ip", "Destination IP")]:
+            ip = row.get(ip_field)
+            if ip and str(ip) not in ("None", "", "nan"):
+                ioc_rows.append({
+                    "ioc": str(ip), "type": ioc_type,
+                    "severity": row.get("severity", "unknown"),
+                    "agent": row.get("agent_name", "Unknown"),
+                    "timestamp": row["timestamp"],
+                    "rule_id": row.get("rule_id", ""),
+                    "desc": row.get("rule_description", ""),
+                })
+
+    if not ioc_rows:
+        st.markdown("""
+        <div style='padding:2rem; background:#161B22; border:1px solid #21262D; color:#484F58; font-size:0.82rem;'>
+            No IP-based IOCs detected in the current alert stream.<br>
+            <span style='font-size:0.72rem;'>Wazuh rules that generate src_ip/dst_ip fields will populate this view.</span>
+        </div>""", unsafe_allow_html=True)
+        return
+
+    df_ioc = pd.DataFrame(ioc_rows)
+    summary_df = (
+        df_ioc.groupby(["ioc", "type"])
+        .agg(
+            hit_count=("ioc", "count"),
+            severities=("severity", lambda x: sorted(set(x), key=lambda s: {"critical":0,"high":1,"medium":2,"low":3}.get(s,4))[0]),
+            assets=("agent", lambda x: ", ".join(sorted(set(x))[:3])),
+            first_seen=("timestamp", "min"),
+            last_seen=("timestamp", "max"),
+        )
+        .reset_index()
+        .sort_values("hit_count", ascending=False)
+    )
+
+    st.markdown(f"<div class='sec-header'>Observed IOCs — {len(summary_df)} Unique Indicators</div>", unsafe_allow_html=True)
+
+    rows_html = ""
+    for _, r in summary_df.iterrows():
+        badge = sev_badge(r["severities"])
+        rows_html += f"""<tr>
+            <td class="agent-cell" style="font-family:'JetBrains Mono',monospace;">{r['ioc']}</td>
+            <td class="rule-id">{r['type']}</td>
+            <td>{badge}</td>
+            <td class="rule-id">{r['hit_count']}</td>
+            <td class="desc-cell">{str(r['assets'])[:50]}</td>
+            <td class="ts-cell">{fmt_ts(r['first_seen'])}</td>
+            <td class="ts-cell">{fmt_ts(r['last_seen'])}</td>
+        </tr>"""
+
+    st.markdown(f"""
+    <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+    <table class="evt-table">
+        <thead><tr><th>IP Address</th><th>Type</th><th>Max Severity</th>
+        <th>Hit Count</th><th>Affected Assets</th><th>First Seen</th><th>Last Seen</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table></div>""", unsafe_allow_html=True)
+
+    st.markdown("<div class='sec-header'>Top 10 Most Active IOCs</div>", unsafe_allow_html=True)
+    top10 = summary_df.head(10)
+    fig = px.bar(top10, x="ioc", y="hit_count",
+                 color="severities",
+                 color_discrete_map={"critical":"#F85149","high":"#D29922","medium":"#388BFD","low":"#3FB950"},
+                 labels={"ioc":"IP Address","hit_count":"Alert Count"})
+    fig.update_layout(plot_bgcolor="#0D1117", paper_bgcolor="#0D1117",
+                      font=dict(color="#8B949E", size=10),
+                      margin=dict(l=0,r=0,t=5,b=0), height=220, showlegend=False,
+                      xaxis=dict(tickangle=-30), yaxis=dict(showgrid=True, gridcolor="#161B22"))
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: MITRE ATT&CK (derived from mitre_techniques or rule groups)
+# ──────────────────────────────────────────────────────────────────────────────
+def page_mitre():
+    render_topbar("MITRE ATT&CK — Technique Coverage")
+    items = load_all_alerts()
+    if not items:
+        st.markdown("<div style='padding:2rem;color:#484F58;'>No alert data available.</div>", unsafe_allow_html=True)
+        return
+
+    tech_rows = []
+    label_col = "MITRE Technique"
+    for item in items:
+        techs = item.get("mitre_techniques") or []
+        if isinstance(techs, str):
+            techs = [t.strip() for t in techs.split(",") if t.strip()]
+        for tech in techs:
+            tech_rows.append({
+                "technique": str(tech),
+                "severity": item.get("severity", "unknown"),
+                "agent": item.get("agent_name", "Unknown"),
+                "rule_id": item.get("rule_id", ""),
+                "desc": item.get("rule_description", ""),
+            })
+
+    # Fallback: use Wazuh rule groups if no MITRE IDs
+    if not tech_rows:
+        label_col = "Wazuh Rule Group (MITRE Proxy)"
+        for item in items:
+            groups = item.get("groups") or []
+            if isinstance(groups, str):
+                groups = [groups]
+            for g in groups:
+                if g:
+                    tech_rows.append({
+                        "technique": g,
+                        "severity": item.get("severity", "unknown"),
+                        "agent": item.get("agent_name", "Unknown"),
+                        "rule_id": item.get("rule_id", ""),
+                        "desc": item.get("rule_description", ""),
+                    })
+
+    if not tech_rows:
+        st.markdown("""
+        <div style='padding:2rem; background:#161B22; border:1px solid #21262D; color:#484F58; font-size:0.82rem;'>
+            No MITRE technique tags in current alerts.<br>
+            <span style='font-size:0.72rem;'>Wazuh rules with <code>rule.mitre.id</code> fields will populate this view.</span>
+        </div>""", unsafe_allow_html=True)
+        return
+
+    df_t = pd.DataFrame(tech_rows)
+    summary = (
+        df_t.groupby("technique")
+        .agg(
+            count=("technique", "count"),
+            top_sev=("severity", lambda x: sorted(set(x), key=lambda s: {"critical":0,"high":1,"medium":2,"low":3}.get(s,4))[0]),
+            assets=("agent", lambda x: len(set(x))),
+            rules=("rule_id", lambda x: ", ".join(sorted(set(str(r) for r in x))[:3])),
+            sample_desc=("desc", "first"),
+        )
+        .reset_index()
+        .sort_values("count", ascending=False)
+    )
+
+    st.markdown(f"<div class='sec-header'>{label_col} — {len(summary)} Techniques Observed</div>", unsafe_allow_html=True)
+
+    rows_html = ""
+    for _, r in summary.iterrows():
+        badge = sev_badge(r["top_sev"])
+        rows_html += f"""<tr>
+            <td class="agent-cell" style="font-family:'JetBrains Mono',monospace;">{r['technique']}</td>
+            <td>{badge}</td>
+            <td class="rule-id">{r['count']}</td>
+            <td class="rule-id">{r['assets']}</td>
+            <td class="rule-id">{str(r['rules'])[:50]}</td>
+            <td class="desc-cell">{str(r['sample_desc'])[:60]}</td>
+        </tr>"""
+
+    st.markdown(f"""
+    <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+    <table class="evt-table">
+        <thead><tr><th>{label_col}</th><th>Max Severity</th>
+        <th>Alert Count</th><th>Assets</th><th>Rules</th><th>Sample Description</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table></div>""", unsafe_allow_html=True)
+
+    st.markdown("<div class='sec-header'>Technique Frequency Chart</div>", unsafe_allow_html=True)
+    top = summary.head(15).iloc[::-1]
+    fig = px.bar(top, x="count", y="technique", orientation="h",
+                 color="top_sev",
+                 color_discrete_map={"critical":"#F85149","high":"#D29922","medium":"#388BFD","low":"#3FB950"},
+                 labels={"technique":"","count":"Alert Count"})
+    fig.update_layout(plot_bgcolor="#0D1117", paper_bgcolor="#0D1117",
+                      font=dict(color="#8B949E", size=10),
+                      margin=dict(l=0,r=0,t=5,b=0), height=max(250, len(top)*26),
+                      xaxis=dict(showgrid=True, gridcolor="#161B22"),
+                      yaxis=dict(showgrid=False), showlegend=False)
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: DETECTION RULES (derived from rule_id in alerts)
+# ──────────────────────────────────────────────────────────────────────────────
+def page_rules():
+    render_topbar("Detection Rules — Active Rule Inventory")
+    items = load_all_alerts()
+    if not items:
+        st.markdown("<div style='padding:2rem;color:#484F58;'>No alert data available.</div>", unsafe_allow_html=True)
+        return
+
+    df = pd.DataFrame(items)
+    rules = (
+        df.groupby(["rule_id", "rule_description", "severity"])
+        .agg(count=("id", "count"))
+        .reset_index()
+        .sort_values("count", ascending=False)
+        .drop_duplicates(subset=["rule_id"])
+    )
+
+    st.markdown(f"<div class='sec-header'>Active Detection Rules — {len(rules)} Rules Firing</div>", unsafe_allow_html=True)
+
+    rows_html = ""
+    for _, r in rules.iterrows():
+        badge = sev_badge(r["severity"])
+        rows_html += f"""<tr>
+            <td class="rule-id" style="font-family:'JetBrains Mono',monospace;">{r['rule_id']}</td>
+            <td>{badge}</td>
+            <td class="desc-cell">{str(r['rule_description'])[:80]}</td>
+            <td class="rule-id">{r['count']}</td>
+        </tr>"""
+
+    st.markdown(f"""
+    <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+    <table class="evt-table">
+        <thead><tr><th>Rule ID</th><th>Severity</th><th>Description</th><th>Trigger Count</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table></div>""", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: ASSETS (derived from agent fields in alerts)
+# ──────────────────────────────────────────────────────────────────────────────
+def page_assets():
+    render_topbar("Asset Inventory — Monitored Endpoints")
+    items = load_all_alerts()
+    if not items:
+        st.markdown("<div style='padding:2rem;color:#484F58;'>No alert data available.</div>", unsafe_allow_html=True)
+        return
+
+    df = pd.DataFrame(items)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    agg_dict = {
+        "alert_count": ("id", "count"),
+        "last_seen": ("timestamp", "max"),
+        "first_seen": ("timestamp", "min"),
+        "critical": ("severity", lambda x: (x == "critical").sum()),
+        "high": ("severity", lambda x: (x == "high").sum()),
+    }
+    if "agent_ip" in df.columns:
+        agg_dict["agent_ip"] = ("agent_ip", "first")
+
+    assets = (
+        df.groupby("agent_name")
+        .agg(**agg_dict)
+        .reset_index()
+        .sort_values("alert_count", ascending=False)
+    )
+
+    st.markdown(f"<div class='sec-header'>Monitored Assets — {len(assets)} Endpoints Reporting</div>", unsafe_allow_html=True)
+
+    rows_html = ""
+    for _, r in assets.iterrows():
+        risk = "critical" if r["critical"] > 0 else ("high" if r["high"] > 0 else "low")
+        badge = sev_badge(risk)
+        ip = str(r.get("agent_ip", "—")) if "agent_ip" in r else "—"
+        rows_html += f"""<tr>
+            <td class="agent-cell">{r['agent_name']}</td>
+            <td class="ip-cell">{ip}</td>
+            <td>{badge}</td>
+            <td class="rule-id">{r['alert_count']}</td>
+            <td class="rule-id" style="color:#F85149;">{int(r['critical'])}</td>
+            <td class="rule-id" style="color:#D29922;">{int(r['high'])}</td>
+            <td class="ts-cell">{fmt_ts(r['first_seen'])}</td>
+            <td class="ts-cell">{fmt_ts(r['last_seen'])}</td>
+        </tr>"""
+
+    st.markdown(f"""
+    <div style="overflow-x:auto; background:#161B22; border:1px solid #21262D;">
+    <table class="inc-table">
+        <thead><tr><th>Hostname</th><th>IP</th><th>Risk</th><th>Total Alerts</th>
+        <th>Critical</th><th>High</th><th>First Seen</th><th>Last Seen</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table></div>""", unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: REPORTS
+# ──────────────────────────────────────────────────────────────────────────────
 def page_reports():
     render_topbar("Reports & Analytics")
     summary = api_get("/api/dashboard/summary")
@@ -945,24 +1223,34 @@ def page_reports():
         st.error("Could not load summary data.")
         return
 
-    st.markdown("<div class='sec-header'>Incident Summary Report</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-header'>Platform Activity Summary</div>", unsafe_allow_html=True)
+    items = load_all_alerts()
     sev = summary.get("severity_counts", {})
     report_data = {
-        "Total Events": summary.get("alert_count", 0),
-        "Critical": sev.get("critical", 0),
-        "High": sev.get("high", 0),
-        "Medium": sev.get("medium", 0),
-        "Low": sev.get("low", 0),
-        "Open Incidents": summary.get("open_incident_count", 0),
-        "Generated At": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "report_generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "platform": "SentinelIQ Enterprise SIEM",
+        "metrics": {
+            "total_events": summary.get("alert_count", 0),
+            "severity_breakdown": sev,
+            "open_incidents": summary.get("open_incident_count", 0),
+        },
     }
-    st.json(report_data)
-    st.download_button(
-        "Download Report (JSON)",
-        data=json.dumps(report_data, indent=2),
-        file_name="SentinelIQ_Report.json",
-        mime="application/json"
-    )
+    if items:
+        df = pd.DataFrame(items)
+        report_data["top_10_firing_rules"] = df.groupby("rule_id").size().sort_values(ascending=False).head(10).to_dict()
+        report_data["alert_count_by_asset"] = df.groupby("agent_name").size().sort_values(ascending=False).to_dict()
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.json(report_data)
+    with col2:
+        st.download_button(
+            "Download Full Report (JSON)",
+            data=json.dumps(report_data, indent=2, default=str),
+            file_name=f"SentinelIQ_Report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.json",
+            mime="application/json",
+        )
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # MAIN ROUTER
@@ -971,16 +1259,14 @@ def main():
     render_sidebar()
     page = st.session_state.nav
 
-    if page == "Overview":           page_overview()
-    elif page == "Security Events":  page_security_events()
-    elif page == "Incidents":        page_incidents()
-    elif page == "Agents":           page_agents()
-    elif page == "Reports":          page_reports()
-    elif page == "Threat Intelligence": placeholder_page("Threat Intelligence — IOC Reputation Engine")
-    elif page == "MITRE ATT&CK":    placeholder_page("MITRE ATT&CK — Tactics & Technique Coverage")
-    elif page == "Detection Rules":  placeholder_page("Detection Engineering — Rule Management")
-    elif page == "Assets":           placeholder_page("Asset Inventory — Endpoint Risk Registry")
-    else:
-        placeholder_page(page)
+    if page == "Overview":              page_overview()
+    elif page == "Security Events":     page_security_events()
+    elif page == "Incidents":           page_incidents()
+    elif page == "Threat Intelligence": page_threat_intel()
+    elif page == "MITRE ATT&CK":        page_mitre()
+    elif page == "Detection Rules":     page_rules()
+    elif page == "Assets":              page_assets()
+    elif page == "Agents":              page_agents()
+    elif page == "Reports":             page_reports()
 
 main()
