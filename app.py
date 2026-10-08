@@ -335,29 +335,41 @@ div[data-testid="metric-container"] { display: none; }
     display: flex; flex-direction: column; gap: 0;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label {
-    display: block !important; width: 100% !important;
+    display: flex !important; width: 100% !important; align-items: center !important;
     padding: 0.5rem 1rem !important; cursor: pointer !important;
     border-left: 2px solid transparent !important;
-    color: #8B949E !important; font-size: 0.82rem !important; font-weight: 400 !important;
     background: transparent !important; transition: all 0.15s !important;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
-    color: #E6EDF3 !important; background: rgba(56, 139, 253, 0.07) !important;
+    background: rgba(56, 139, 253, 0.07) !important;
     border-left-color: #388BFD !important;
 }
+/* Show the text */
 [data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] {
+    display: block !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] p {
+    color: #8B949E !important; font-size: 0.82rem !important; font-weight: 500 !important; margin: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover [data-testid="stMarkdownContainer"] p {
+    color: #E6EDF3 !important;
+}
+/* Hide the native radio circle completely */
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[data-testid="stWidgetLabel"] + div > label > div:first-child {
     display: none !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
-    display: none !important;
-}
+/* Active state coloring */
 [data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
-[data-testid="stSidebar"] [data-testid="stRadio"] :has(input:checked) label {
-    color: #79C0FF !important; background: rgba(56, 139, 253, 0.12) !important;
-    border-left-color: #388BFD !important; font-weight: 600 !important;
+[data-testid="stSidebar"] [data-testid="stRadio"] :has(input:checked) label,
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+    background: rgba(56, 139, 253, 0.12) !important;
+    border-left-color: #388BFD !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stRadio"] :has(input:checked) label [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) [data-testid="stMarkdownContainer"] p {
+    color: #79C0FF !important; font-weight: 600 !important;
 }
 
 /* Primary button override */
@@ -433,7 +445,7 @@ def sev_color(sev):
 # SIDEBAR (radio-based nav — more reliable in Streamlit)
 # ──────────────────────────────────────────────────────────────────────────────
 ALL_PAGES = [
-    "Overview", "Security Events", "Incidents",
+    "Overview", "Security Events", "Incidents", "AI Analyst",
     "Threat Intelligence", "MITRE ATT&CK", "Detection Rules",
     "Assets", "Agents", "Reports"
 ]
@@ -865,49 +877,16 @@ def page_incidents():
     st.markdown("<div class='sec-header'>Active Incidents</div>", unsafe_allow_html=True)
     render_incident_table(incidents)
 
-    st.markdown("<div class='sec-header'>AI SOC Analyst</div>", unsafe_allow_html=True)
-
-    ctrl_col, result_col = st.columns([1, 3])
-
-    with ctrl_col:
-        st.markdown("""
-        <div class="ctrl-panel">
-        <div class="ctrl-label">Analysis Controls</div>
-        </div>
-        """, unsafe_allow_html=True)
-        target_id = st.number_input("Incident ID", min_value=1, value=1)
-        task = st.radio("Analysis Module", ["triage", "investigation", "response", "manager", "report"],
-                        format_func=lambda x: x.upper())
-        st.markdown("<br>", unsafe_allow_html=True)
-        run = st.button("Execute AI Analysis", type="primary", use_container_width=True)
-
-    with result_col:
-        if run:
-            with st.spinner("Querying Wazuh indexer and running AI inference..."):
-                res = api_post(f"/api/incidents/{target_id}/analyze", {"task": task, "force": True})
-
-            if res.get("status") == "success":
-                ai = res.get("result", {})
-                render_ai_result(
-                    ai=ai,
-                    task=task,
-                    model_name=ai.get("model", "Groq LLaMA"),
-                    confidence=ai.get("confidence_label", "MEDIUM"),
-                )
-            elif res.get("status") == "error":
-                st.error(f"AI Engine Error: {res.get('message', 'Unknown error')}")
-            else:
-                st.error(f"Unexpected response: {res}")
-        else:
-            st.markdown("""
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;
-                        height:300px; background:#161B22; border:1px solid #21262D; color:#484F58;">
-                <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem;">AI Analyst — Idle</div>
-                <div style="font-size:0.75rem; text-align:center;">
-                    Select an incident and analysis module,<br>then press Execute.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+    st.markdown("<br><div class='sec-header'>AI SOC Analyst</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="padding:1rem; background:rgba(56, 139, 253, 0.1); border:1px solid rgba(56, 139, 253, 0.3); border-radius:4px; margin-bottom:1rem; color:#C9D1D9; font-size:0.85rem;">
+        The AI Co-Pilot has been moved to its own dedicated workspace.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("Launch AI Investigator Module", type="primary"):
+        st.session_state.nav = "AI Analyst"
+        st.rerun()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: AGENTS
@@ -971,6 +950,28 @@ def load_all_alerts():
         st.info("Check Streamlit Secrets for correct BACKEND_API_URL and ensure Cloudflare isn't blocking Streamlit IPs.")
         return []
     return resp.get("items", []) if isinstance(resp, dict) else []
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MITRE ATT&CK TRANSLATIONS (For Junior Analysts)
+# ──────────────────────────────────────────────────────────────────────────────
+MITRE_MAP = {
+    "T1078": "Valid Accounts (Using legitimate credentials)",
+    "T1112": "Modify Registry (Changing system configuration)",
+    "T1565.001": "Data Manipulation (Altering stored data)",
+    "T1021": "Remote Services (Lateral movement via RDP/SSH/SMB)",
+    "T1059": "Command and Scripting Interpreter (Using PowerShell/Bash)",
+    "T1190": "Exploit Public-Facing Application (Attacking web servers)",
+    "T1110": "Brute Force (Guessing passwords)",
+    "T1003": "OS Credential Dumping (Stealing passwords from memory)",
+    "T1098": "Account Manipulation (Creating or modifying accounts)",
+    "T1484": "Domain Policy Modification (Changing Group Policy)",
+    "T1562": "Impair Defenses (Disabling antivirus or logging)",
+    "T1053": "Scheduled Task/Job (Persistence via cron/task scheduler)"
+}
+
+def get_mitre_name(t_code):
+    clean_code = str(t_code).strip()
+    return MITRE_MAP.get(clean_code, f"{clean_code} (Advanced Threat Technique)")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: THREAT INTELLIGENCE (derived from src_ip / dst_ip in alerts)
@@ -1074,7 +1075,7 @@ def page_mitre():
             techs = [t.strip() for t in techs.split(",") if t.strip()]
         for tech in techs:
             tech_rows.append({
-                "technique": str(tech),
+                "technique": get_mitre_name(tech),  # Translated for juniors
                 "severity": item.get("severity", "unknown"),
                 "agent": item.get("agent_name", "Unknown"),
                 "rule_id": item.get("rule_id", ""),
@@ -1091,7 +1092,7 @@ def page_mitre():
             for g in groups:
                 if g:
                     tech_rows.append({
-                        "technique": g,
+                        "technique": str(g).title() + " (Rule Group)",
                         "severity": item.get("severity", "unknown"),
                         "agent": item.get("agent_name", "Unknown"),
                         "rule_id": item.get("rule_id", ""),
@@ -1126,7 +1127,7 @@ def page_mitre():
     for _, r in summary.iterrows():
         badge = sev_badge(r["top_sev"])
         rows_html += f"""<tr>
-            <td class="agent-cell" style="font-family:'JetBrains Mono',monospace;">{r['technique']}</td>
+            <td class="agent-cell" style="font-family:'Inter',sans-serif; font-weight:500;">{r['technique']}</td>
             <td>{badge}</td>
             <td class="rule-id">{r['count']}</td>
             <td class="rule-id">{r['assets']}</td>
@@ -1144,16 +1145,75 @@ def page_mitre():
 
     st.markdown("<div class='sec-header'>Technique Frequency Chart</div>", unsafe_allow_html=True)
     top = summary.head(15).iloc[::-1]
-    fig = px.bar(top, x="count", y="technique", orientation="h",
+    
+    # Shorten labels for the chart
+    top["short_tech"] = top["technique"].apply(lambda x: x.split("(")[0].strip() if "(" in x else x)
+
+    fig = px.bar(top, x="count", y="short_tech", orientation="h",
                  color="top_sev",
                  color_discrete_map={"critical":"#F85149","high":"#D29922","medium":"#388BFD","low":"#3FB950"},
-                 labels={"technique":"","count":"Alert Count"})
+                 labels={"short_tech":"","count":"Alert Count"})
     fig.update_layout(plot_bgcolor="#0D1117", paper_bgcolor="#0D1117",
                       font=dict(color="#8B949E", size=10),
                       margin=dict(l=0,r=0,t=5,b=0), height=max(250, len(top)*26),
                       xaxis=dict(showgrid=True, gridcolor="#161B22"),
                       yaxis=dict(showgrid=False), showlegend=False)
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PAGE: AI SOC ANALYST (Extracted for better visibility)
+# ──────────────────────────────────────────────────────────────────────────────
+def page_ai_analyst():
+    render_topbar("AI Investigator — Automated SOC Analyst")
+    
+    st.markdown("""
+    <div style="padding:1rem; background:rgba(56, 139, 253, 0.1); border:1px solid rgba(56, 139, 253, 0.3); border-radius:4px; margin-bottom:1.5rem;">
+        <div style="color:#79C0FF; font-weight:600; font-size:0.85rem; margin-bottom:0.25rem;">Chat with your AI Co-Pilot</div>
+        <div style="color:#C9D1D9; font-size:0.75rem;">Select an Incident ID below and choose an analysis module. The AI will correlate logs, extract MITRE tactics, and generate an actionable response plan.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    ctrl_col, result_col = st.columns([1, 3])
+    with ctrl_col:
+        st.markdown("""
+        <div class="ctrl-panel">
+        <div class="ctrl-label">Analysis Controls</div>
+        </div>
+        """, unsafe_allow_html=True)
+        target_id = st.number_input("Incident ID to Analyze", min_value=1, value=1)
+        task = st.radio("AI Module", ["triage", "investigation", "response", "manager", "report"],
+                        format_func=lambda x: x.upper())
+        st.markdown("<br>", unsafe_allow_html=True)
+        run = st.button("Generate AI Response", type="primary", use_container_width=True)
+
+    with result_col:
+        if run:
+            with st.spinner("🧠 Querying indexer and running LLM inference..."):
+                res = api_post(f"/api/incidents/{target_id}/analyze", {"task": task, "force": True})
+
+            if res.get("status") == "success":
+                ai = res.get("result", {})
+                render_ai_result(
+                    ai=ai,
+                    task=task,
+                    model_name=ai.get("model", "Groq LLaMA"),
+                    confidence=ai.get("confidence_label", "MEDIUM"),
+                )
+            elif res.get("status") == "error":
+                st.error(f"AI Engine Error: {res.get('message', 'Unknown error')}")
+            else:
+                st.error(f"Unexpected response: {res}")
+        else:
+            st.markdown("""
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center;
+                        height:350px; background:#161B22; border:1px solid #21262D; color:#484F58;">
+                <div style="font-size:1rem; font-weight:600; margin-bottom:0.5rem; color:#8B949E;">AI Analyst is Idle</div>
+                <div style="font-size:0.8rem; text-align:center;">
+                    Enter an Incident ID on the left and select an AI Module.<br>
+                    <span style="color:#388BFD;">Click 'Generate AI Response' to begin.</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: DETECTION RULES (derived from rule_id in alerts)
@@ -1298,6 +1358,7 @@ def main():
     if page == "Overview":              page_overview()
     elif page == "Security Events":     page_security_events()
     elif page == "Incidents":           page_incidents()
+    elif page == "AI Analyst":          page_ai_analyst()
     elif page == "Threat Intelligence": page_threat_intel()
     elif page == "MITRE ATT&CK":        page_mitre()
     elif page == "Detection Rules":     page_rules()
