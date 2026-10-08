@@ -327,11 +327,40 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
     border-radius: 3px !important;
     font-size: 0.82rem !important;
 }
-div[data-testid="metric-container"] { display: none; }  /* hide default metrics */
-.stRadio [data-testid="stMarkdownContainer"] p { font-size: 0.8rem !important; color: #8B949E !important; }
+div[data-testid="metric-container"] { display: none; }
 .stSpinner > div { border-color: #388BFD transparent transparent transparent !important; }
 
-/* Primary button override for nav only */
+/* ── Sidebar Radio → Professional Nav Menu ─────────────────────────────── */
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+    display: flex; flex-direction: column; gap: 0;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    display: block !important; width: 100% !important;
+    padding: 0.5rem 1rem !important; cursor: pointer !important;
+    border-left: 2px solid transparent !important;
+    color: #8B949E !important; font-size: 0.82rem !important; font-weight: 400 !important;
+    background: transparent !important; transition: all 0.15s !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    color: #E6EDF3 !important; background: rgba(56, 139, 253, 0.07) !important;
+    border-left-color: #388BFD !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stMarkdownContainer"] {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label > div:first-child {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+[data-testid="stSidebar"] [data-testid="stRadio"] :has(input:checked) label {
+    color: #79C0FF !important; background: rgba(56, 139, 253, 0.12) !important;
+    border-left-color: #388BFD !important; font-weight: 600 !important;
+}
+
+/* Primary button override */
 .stButton > button[kind="primary"] {
     background: #388BFD !important;
     color: #FFFFFF !important;
@@ -935,9 +964,11 @@ def page_agents():
 @st.cache_data(ttl=60, show_spinner=False)
 def load_all_alerts():
     resp = api_get("/api/alerts", params={"limit": 500})
-    if "__error__" in resp:
+    if isinstance(resp, dict) and "__error__" in resp:
+        st.error(f"🚨 **Backend Connection Error:** `{resp['__error__']}`")
+        st.info("Check Streamlit Secrets for correct BACKEND_API_URL and ensure Cloudflare isn't blocking Streamlit IPs.")
         return []
-    return resp.get("items", [])
+    return resp.get("items", []) if isinstance(resp, dict) else []
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PAGE: THREAT INTELLIGENCE (derived from src_ip / dst_ip in alerts)
