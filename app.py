@@ -1412,7 +1412,7 @@ Note: Expand search keywords intelligently. If user says 'add', keywords should 
                     messages.append({"role": "user", "content": query})
                     
                     completion = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=st.secrets.get("GROQ_MODEL", "llama3-70b-8192"),
                         messages=messages,
                         response_format={"type": "json_object"},
                         temperature=0.1
