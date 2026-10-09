@@ -1423,38 +1423,39 @@ def page_hunter():
                     if not _groq_model:
                         _groq_model = "llama-3.1-8b-instant"
                     
-                    sys_prompt = """You are SentinelIQ Copilot, an expert SOC Analyst assistant. 
-The user will ask you to search security logs in plain English.
-If their request is ambiguous or missing details (no IP, no time range, no action), ask ONE short clarifying question (intent: clarify).
-If it is clear enough to search, generate Pandas search parameters (intent: search).
+                    sys_prompt = """You are SentinelIQ Copilot, an expert SOC Analyst security assistant.
+The user will ask you to search security event logs in plain English.
 
-Return ONLY a valid JSON object exactly matching this schema — no extra text:
-{
-  "intent": "clarify",
-  "reply_message": "Friendly question to ask the user"
-}
-OR:
+DECISION RULES:
+- If the request is too vague (no action mentioned, no time, no asset), respond with intent: "clarify" and ask ONE short question.
+- If the request is specific enough (has an action like delete/add/login, or a file name, or an IP), respond with intent: "search".
+
+Return ONLY valid JSON. No extra text. Schema:
+
+For clarification:
+{"intent": "clarify", "reply_message": "Your clarifying question here"}
+
+For search:
 {
   "intent": "search",
-  "reply_message": "Short confirmation message describing what you are searching for",
-  "kql_query": "SecurityAlerts\\n| where TimeGenerated > ago(1d)\\n| where AgentIP == '10.x.x.x'\\n| where (LogDetails contains 'delete')",
+  "reply_message": "One sentence confirming what you are searching for",
+  "kql_query": "SecurityAlerts | where TimeGenerated > ago(2h) | where AgentIP == '10.x.x.x' | where LogDetails contains 'test'",
   "filters": {
-    "days_back": 1,
-    "target_ip": "10.144.58.120 or null",
-    "exact_terms": ["test.alert.txt", "c:\\\\users\\\\ashraf\\\\desktop"],
-    "keywords": ["delete", "remove", "deleted"]
+    "days_back": 0.08,
+    "target_ip": "10.144.58.120",
+    "search_tokens": ["test_alert", "ashraf", "desktop", "added", "create"]
   }
 }
 
-IMPORTANT filtering rules:
-- "exact_terms": Specific file names, paths, or folder names mentioned by user. These are searched as strict AND conditions in the full log. Example: user says 'test.alert.txt' → exact_terms: ["test.alert.txt"]
-- "keywords": Action-type words expanded. These are broad OR searches applied ONLY if exact_terms didn't narrow enough.
-  - add/added/create/new → ["added", "add", "create", "new", "File added to the system"]
-  - delete/remove → ["delete", "remove", "deleted", "File deleted"]
-  - login/auth/logon → ["login", "authentication", "logon", "session opened"]
-  - registry/hkey → ["registry", "HKEY"]
-  - process/execution → ["process", "execution", "spawned"]"""
-                    
+RULES for filters.search_tokens (CRITICAL):
+- Extract ALL meaningful tokens from the query as individual short strings
+- For file names: break them into parts. "test.alert.txt" → add BOTH ["test_alert", "test.alert", "alert.txt", "test"] so variations are covered
+- For paths: extract the folder name only, NOT the full path. "c:\\users\\ashraf\\desktop" → add ["ashraf", "desktop"]
+- For actions: expand naturally. "add"/"added"/"create" → ["added", "add", "File added"]. "delete"/"remove" → ["deleted", "remove", "File deleted", "File 'c"]
+- For users: extract username. "ashraf" → ["ashraf"]
+- days_back: hours → use decimals (2 hours = 0.08, 1 day = 1, 48 hours = 2)
+- target_ip: exact IP string or null (never "null" as string, use JSON null)"""
+
                     messages = [{"role": "system", "content": sys_prompt}]
                     for m in st.session_state.hunter_chat[-4:-1]:
                         messages.append({"role": m["role"], "content": m["content"]})
@@ -1482,8 +1483,8 @@ IMPORTANT filtering rules:
                     filters = response_data.get("filters", {})
                     days_back = filters.get("days_back")
                     target_ip = filters.get("target_ip")
-                    keywords = filters.get("keywords", [])
-                    exact_terms = filters.get("exact_terms", [])
+                    # New unified search tokens (replaces exact_terms + keywords)
+                    search_tokens = filters.get("search_tokens") or filters.get("keywords") or []
                     kql_query = response_data.get("kql_query", "SecurityAlerts | take 100")
                     
                     st.markdown(f"""
@@ -1503,29 +1504,30 @@ IMPORTANT filtering rules:
                     
                     # 1. TIME FILTER
                     if days_back:
-                        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=days_back)
+                        cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=float(days_back))
                         df = df[df['timestamp'] >= cutoff]
                     
-                    # 2. IP FILTER
-                    if target_ip and str(target_ip).strip() not in ("", "null", "None"):
+                    # 2. IP FILTER — robust string comparison
+                    tip = str(target_ip).strip() if target_ip else ""
+                    if tip and tip.lower() not in ("", "null", "none"):
                         df = df[
-                            (df['agent_ip'] == target_ip) | 
-                            (df['src_ip'] == target_ip) | 
-                            (df['dst_ip'] == target_ip) |
-                            (df['full_log'].str.contains(target_ip, na=False, regex=False))
+                            (df['agent_ip'].astype(str) == tip) | 
+                            (df['src_ip'].astype(str) == tip) | 
+                            (df['dst_ip'].astype(str) == tip) |
+                            (df['full_log'].str.contains(re.escape(tip), na=False, case=False))
                         ]
                     
-                    # 3. EXACT TERMS — strict AND (each term must appear in full_log)
-                    if exact_terms:
-                        for term in exact_terms:
-                            if term and str(term).strip():
-                                df = df[df['full_log'].str.contains(str(term).strip(), case=False, na=False, regex=False)]
-                    
-                    # 4. KEYWORDS — broad OR (only if no exact_terms narrowed results enough)
-                    elif keywords:
-                        mask = df['full_log'].str.contains('|'.join(keywords), case=False, na=False) | \
-                               df['rule_description'].str.contains('|'.join(keywords), case=False, na=False)
-                        df = df[mask]
+                    # 3. TOKEN SEARCH — OR match: any token in full_log or rule_description
+                    # Uses regex=False per token for safe backslash/special char handling
+                    if search_tokens:
+                        clean_tokens = [str(t).strip() for t in search_tokens if t and str(t).strip()]
+                        if clean_tokens:
+                            token_mask = pd.Series([False] * len(df), index=df.index)
+                            for tok in clean_tokens:
+                                token_mask = token_mask | \
+                                    df['full_log'].str.contains(tok, case=False, na=False, regex=False) | \
+                                    df['rule_description'].str.contains(tok, case=False, na=False, regex=False)
+                            df = df[token_mask]
                         
                     st.markdown(f"<div class='sec-header'>Hunt Results — {len(df)} Matches</div>", unsafe_allow_html=True)
                     
