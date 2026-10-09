@@ -1388,10 +1388,11 @@ def page_hunter():
                     import json
                     client = groq.Groq(api_key=groq_key)
                     
-                    # Pick model — use secret if set, else hardcoded safe default
-                    _groq_model = (st.secrets.get("GROQ_MODEL") or "llama3-70b-8192").strip()
+                    # Model priority: Streamlit secret → hardcoded current default
+                    # llama3-70b-8192 was decommissioned by Groq — using llama-3.1-8b-instant
+                    _groq_model = (st.secrets.get("GROQ_MODEL") or "").strip()
                     if not _groq_model:
-                        _groq_model = "llama3-70b-8192"
+                        _groq_model = "llama-3.1-8b-instant"
                     
                     sys_prompt = """You are SentinelIQ Copilot, an expert SOC Analyst assistant. 
 The user will ask you to search security logs in plain English.
