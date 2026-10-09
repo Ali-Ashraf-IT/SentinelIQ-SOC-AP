@@ -785,6 +785,26 @@ def page_overview():
         return
 
     render_kpi_row(summary)
+    
+    # Drilldown Buttons
+    st.markdown("<div style='margin-top:0.5rem; margin-bottom:1.5rem; font-size:0.75rem; color:#8B949E; text-transform:uppercase; letter-spacing:1px;'>↳ Quick Drilldown Actions</div>", unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("🚨 Triage CRITICAL", use_container_width=True):
+        st.session_state.global_sev_filter = "critical"
+        st.session_state.nav = "Security Events"
+        st.rerun()
+    if c2.button("🟠 Review HIGH", use_container_width=True):
+        st.session_state.global_sev_filter = "high"
+        st.session_state.nav = "Security Events"
+        st.rerun()
+    if c3.button("🔵 Monitor MED/LOW", use_container_width=True):
+        st.session_state.global_sev_filter = "medium"
+        st.session_state.nav = "Security Events"
+        st.rerun()
+    if c4.button("👁 View ALL EVENTS", use_container_width=True):
+        st.session_state.global_sev_filter = "All"
+        st.session_state.nav = "Security Events"
+        st.rerun()
 
     alerts_resp = api_get("/api/alerts", params={"limit": 200})
     items = alerts_resp.get("items", []) if "__error__" not in alerts_resp else []
@@ -847,7 +867,17 @@ def page_security_events():
     # Filter bar
     fc1, fc2, fc3 = st.columns([2, 1, 1])
     with fc1:
-        sev_filter = st.selectbox("Severity", ["All", "critical", "high", "medium", "low"], label_visibility="collapsed")
+        opts = ["All", "critical", "high", "medium", "low"]
+        def_idx = 0
+        if "global_sev_filter" in st.session_state:
+            try:
+                def_idx = opts.index(st.session_state.global_sev_filter)
+            except ValueError:
+                pass
+            # Optional: do not pop if you want it sticky, but popping makes it one-off jump
+            del st.session_state.global_sev_filter
+            
+        sev_filter = st.selectbox("Severity", opts, index=def_idx, label_visibility="collapsed")
     with fc2:
         # FastAPI backend enforces le=200 max limit
         limit = st.selectbox("Max Results", [50, 100, 200], label_visibility="collapsed")
