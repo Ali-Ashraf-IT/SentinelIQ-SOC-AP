@@ -1388,23 +1388,40 @@ def page_hunter():
                     import json
                     client = groq.Groq(api_key=groq_key)
                     
+                    # Pick model — use secret if set, else hardcoded safe default
+                    _groq_model = (st.secrets.get("GROQ_MODEL") or "llama3-70b-8192").strip()
+                    if not _groq_model:
+                        _groq_model = "llama3-70b-8192"
+                    
                     sys_prompt = """You are SentinelIQ Copilot, an expert SOC Analyst assistant. 
-The user will ask you to search logs in plain English.
-If their request is very ambiguous, ask a clarifying question (intent: clarify).
+The user will ask you to search security logs in plain English.
+If their request is ambiguous or missing details (no IP, no time range, no action), ask ONE short clarifying question (intent: clarify).
 If it is clear enough to search, generate Pandas search parameters (intent: search).
 
-Return ONLY a JSON object exactly matching this schema:
+Return ONLY a valid JSON object exactly matching this schema — no extra text:
 {
-  "intent": "clarify" | "search",
-  "reply_message": "Friendly message to show the user",
-  "kql_query": "Pseudo KQL query string to display (only if intent is search)",
+  "intent": "clarify",
+  "reply_message": "Friendly question to ask the user"
+}
+OR:
+{
+  "intent": "search",
+  "reply_message": "Short confirmation message describing what you are searching for",
+  "kql_query": "SecurityAlerts\\n| where TimeGenerated > ago(1d)\\n| where AgentIP == '10.x.x.x'\\n| where (LogDetails contains 'delete')",
   "filters": {
-     "days_back": 7,
-     "target_ip": "ip address or null",
-     "keywords": ["list", "of", "words", "to", "search", "like", "add", "added", "create"]
+    "days_back": 1,
+    "target_ip": "10.144.58.120",
+    "keywords": ["delete", "remove", "deleted"]
   }
 }
-Note: Expand search keywords intelligently. If user says 'add', keywords should be ["add", "added", "create", "new"]. If they say 'delete', include ["delete", "remove", "deleted"]."""
+
+Keyword expansion rules (IMPORTANT):
+- add / added / create / new → keywords: ["added", "add", "create", "new", "File added"]
+- delete / remove / deleted → keywords: ["delete", "remove", "deleted", "File deleted"]
+- login / auth / logon → keywords: ["login", "authentication", "logon", "session opened"]
+- registry → keywords: ["registry", "HKEY"]
+- process / execution → keywords: ["process", "execution", "spawned"]
+- network / connection → keywords: ["network", "connection", "connect"]"""
                     
                     messages = [{"role": "system", "content": sys_prompt}]
                     for m in st.session_state.hunter_chat[-4:-1]:
@@ -1412,7 +1429,7 @@ Note: Expand search keywords intelligently. If user says 'add', keywords should 
                     messages.append({"role": "user", "content": query})
                     
                     completion = client.chat.completions.create(
-                        model=st.secrets.get("GROQ_MODEL"),
+                        model=_groq_model,
                         messages=messages,
                         response_format={"type": "json_object"},
                         temperature=0.1
