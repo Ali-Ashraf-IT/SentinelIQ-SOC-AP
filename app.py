@@ -330,6 +330,35 @@ html, body, [class*="css"], [data-testid="stAppViewContainer"] {
 div[data-testid="metric-container"] { display: none; }
 .stSpinner > div { border-color: #388BFD transparent transparent transparent !important; }
 
+/* ── Chat Input Dark Theme Fix ──────────────────────────────────────────── */
+[data-testid="stChatInput"] textarea {
+    background: #161B22 !important;
+    color: #C9D1D9 !important;
+    border: 1px solid #30363D !important;
+    border-radius: 6px !important;
+    font-size: 0.85rem !important;
+    caret-color: #79C0FF !important;
+}
+[data-testid="stChatInput"] textarea::placeholder {
+    color: #484F58 !important;
+}
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #388BFD !important;
+    outline: none !important;
+    box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.2) !important;
+}
+/* Chat message bubbles */
+[data-testid="stChatMessage"] {
+    background: #161B22 !important;
+    border: 1px solid #21262D !important;
+    border-radius: 6px !important;
+    padding: 0.75rem !important;
+}
+[data-testid="stChatMessage"] p {
+    color: #C9D1D9 !important;
+    font-size: 0.85rem !important;
+}
+
 /* ── Sidebar Radio → Professional Nav Menu ─────────────────────────────── */
 [data-testid="stSidebar"] [data-testid="stRadio"] > div {
     display: flex; flex-direction: column; gap: 0;
@@ -1411,18 +1440,20 @@ OR:
   "kql_query": "SecurityAlerts\\n| where TimeGenerated > ago(1d)\\n| where AgentIP == '10.x.x.x'\\n| where (LogDetails contains 'delete')",
   "filters": {
     "days_back": 1,
-    "target_ip": "10.144.58.120",
+    "target_ip": "10.144.58.120 or null",
+    "exact_terms": ["test.alert.txt", "c:\\\\users\\\\ashraf\\\\desktop"],
     "keywords": ["delete", "remove", "deleted"]
   }
 }
 
-Keyword expansion rules (IMPORTANT):
-- add / added / create / new → keywords: ["added", "add", "create", "new", "File added"]
-- delete / remove / deleted → keywords: ["delete", "remove", "deleted", "File deleted"]
-- login / auth / logon → keywords: ["login", "authentication", "logon", "session opened"]
-- registry → keywords: ["registry", "HKEY"]
-- process / execution → keywords: ["process", "execution", "spawned"]
-- network / connection → keywords: ["network", "connection", "connect"]"""
+IMPORTANT filtering rules:
+- "exact_terms": Specific file names, paths, or folder names mentioned by user. These are searched as strict AND conditions in the full log. Example: user says 'test.alert.txt' → exact_terms: ["test.alert.txt"]
+- "keywords": Action-type words expanded. These are broad OR searches applied ONLY if exact_terms didn't narrow enough.
+  - add/added/create/new → ["added", "add", "create", "new", "File added to the system"]
+  - delete/remove → ["delete", "remove", "deleted", "File deleted"]
+  - login/auth/logon → ["login", "authentication", "logon", "session opened"]
+  - registry/hkey → ["registry", "HKEY"]
+  - process/execution → ["process", "execution", "spawned"]"""
                     
                     messages = [{"role": "system", "content": sys_prompt}]
                     for m in st.session_state.hunter_chat[-4:-1]:
@@ -1452,6 +1483,7 @@ Keyword expansion rules (IMPORTANT):
                     days_back = filters.get("days_back")
                     target_ip = filters.get("target_ip")
                     keywords = filters.get("keywords", [])
+                    exact_terms = filters.get("exact_terms", [])
                     kql_query = response_data.get("kql_query", "SecurityAlerts | take 100")
                     
                     st.markdown(f"""
@@ -1469,19 +1501,28 @@ Keyword expansion rules (IMPORTANT):
                     df = pd.DataFrame(items)
                     df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce', utc=True)
                     
+                    # 1. TIME FILTER
                     if days_back:
                         cutoff = pd.Timestamp.utcnow() - pd.Timedelta(days=days_back)
                         df = df[df['timestamp'] >= cutoff]
-                        
-                    if target_ip:
+                    
+                    # 2. IP FILTER
+                    if target_ip and str(target_ip).strip() not in ("", "null", "None"):
                         df = df[
                             (df['agent_ip'] == target_ip) | 
                             (df['src_ip'] == target_ip) | 
                             (df['dst_ip'] == target_ip) |
-                            (df['full_log'].str.contains(target_ip, na=False))
+                            (df['full_log'].str.contains(target_ip, na=False, regex=False))
                         ]
-                        
-                    if keywords:
+                    
+                    # 3. EXACT TERMS — strict AND (each term must appear in full_log)
+                    if exact_terms:
+                        for term in exact_terms:
+                            if term and str(term).strip():
+                                df = df[df['full_log'].str.contains(str(term).strip(), case=False, na=False, regex=False)]
+                    
+                    # 4. KEYWORDS — broad OR (only if no exact_terms narrowed results enough)
+                    elif keywords:
                         mask = df['full_log'].str.contains('|'.join(keywords), case=False, na=False) | \
                                df['rule_description'].str.contains('|'.join(keywords), case=False, na=False)
                         df = df[mask]
