@@ -1415,6 +1415,7 @@ def page_hunter():
                 try:
                     import groq
                     import json
+                    import re
                     client = groq.Groq(api_key=groq_key)
                     
                     # Model priority: Streamlit secret → hardcoded current default
